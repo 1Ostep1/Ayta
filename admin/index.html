@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>САН — Админ-панель</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --accent: #FF4D29;
+    --bg: #f5f5f7;
+    --card: #ffffff;
+    --border: #e0e0e0;
+    --text: #1d1d1f;
+    --muted: #6e6e73;
+    --danger: #ff3b30;
+    --success: #34c759;
+  }
+
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  /* ── NAV ── */
+  nav { background: var(--card); border-bottom: 1px solid var(--border);
+        padding: 0 24px; display: flex; align-items: center; gap: 24px; height: 56px;
+        position: sticky; top: 0; z-index: 100; }
+  nav h1 { font-size: 18px; font-weight: 700; color: var(--accent); margin-right: auto; }
+  nav button { background: none; border: none; cursor: pointer; font-size: 14px;
+               font-weight: 500; color: var(--muted); padding: 6px 12px;
+               border-radius: 8px; transition: background .15s; }
+  nav button.active, nav button:hover { background: var(--bg); color: var(--text); }
+  #signOutBtn { color: var(--danger); margin-left: auto; }
+
+  /* ── AUTH SCREEN ── */
+  #authScreen { display: flex; align-items: center; justify-content: center;
+                min-height: 100vh; }
+  .auth-card { background: var(--card); border-radius: 16px; padding: 40px;
+               width: 360px; box-shadow: 0 4px 24px rgba(0,0,0,.08); }
+  .auth-card h2 { font-size: 22px; margin-bottom: 24px; }
+
+  /* ── LAYOUT ── */
+  #app { display: none; }
+  .page { display: none; padding: 32px 24px; max-width: 1100px; margin: 0 auto; }
+  .page.active { display: block; }
+
+  /* ── TOOLBAR ── */
+  .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+  .toolbar h2 { font-size: 20px; font-weight: 700; margin-right: auto; }
+
+  /* ── TABLE ── */
+  .table-wrap { background: var(--card); border-radius: 12px;
+                border: 1px solid var(--border); overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  thead tr { background: var(--bg); }
+  th { padding: 10px 14px; text-align: left; font-weight: 600;
+       color: var(--muted); font-size: 12px; text-transform: uppercase;
+       letter-spacing: .04em; border-bottom: 1px solid var(--border); }
+  td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #fafafa; }
+  .emoji-cell { font-size: 22px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 20px;
+           font-size: 11px; font-weight: 600; }
+  .badge-cafe     { background:#e8f5e9; color:#2e7d32; }
+  .badge-coffee   { background:#f3e5f5; color:#6a1b9a; }
+  .badge-fastfood { background:#fff3e0; color:#e65100; }
+  .badge-restaurant{background:#fce4ec; color:#880e4f; }
+  .badge-teahouse { background:#e0f2f1; color:#00695c; }
+  .badge-bakery   { background:#fff8e1; color:#f57f17; }
+  .badge-discount { background:#fce4ec; color:#c62828; }
+  .badge-promo    { background:#ede7f6; color:#4527a0; }
+  .badge-novelty  { background:#e0f7fa; color:#006064; }
+  .row-actions { display: flex; gap: 8px; }
+
+  /* ── BUTTONS ── */
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px;
+         border-radius: 8px; border: none; cursor: pointer; font-size: 14px;
+         font-weight: 500; transition: opacity .15s; }
+  .btn:hover { opacity: .85; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-secondary { background: var(--border); color: var(--text); }
+  .btn-danger { background: var(--danger); color: #fff; }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+
+  /* ── MODAL ── */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.4);
+                   display: flex; align-items: center; justify-content: center;
+                   z-index: 200; padding: 16px; }
+  .modal-overlay.hidden { display: none; }
+  .modal { background: var(--card); border-radius: 16px; padding: 32px;
+           width: 100%; max-width: 560px; max-height: 90vh; overflow-y: auto; }
+  .modal h3 { font-size: 18px; font-weight: 700; margin-bottom: 24px; }
+  .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+
+  /* ── FORM ── */
+  .form-grid { display: grid; gap: 16px; }
+  .form-grid.cols2 { grid-template-columns: 1fr 1fr; }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field.span2 { grid-column: span 2; }
+  label { font-size: 13px; font-weight: 500; color: var(--muted); }
+  input, select, textarea {
+    padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px;
+    font-size: 14px; font-family: inherit; background: var(--bg);
+    transition: border-color .15s; outline: none; width: 100%;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); background: #fff; }
+  textarea { resize: vertical; min-height: 70px; }
+
+  /* ── TOAST ── */
+  #toast { position: fixed; bottom: 24px; right: 24px; padding: 12px 20px;
+           border-radius: 10px; font-size: 14px; font-weight: 500; color: #fff;
+           opacity: 0; transform: translateY(10px); transition: all .3s;
+           pointer-events: none; z-index: 999; }
+  #toast.show { opacity: 1; transform: translateY(0); }
+  #toast.success { background: var(--success); }
+  #toast.error   { background: var(--danger); }
+
+  .empty { padding: 48px; text-align: center; color: var(--muted); font-size: 14px; }
+  .spinner { text-align: center; padding: 48px; color: var(--muted); }
+
+  @media (max-width: 640px) {
+    .form-grid.cols2 { grid-template-columns: 1fr; }
+    .field.span2 { grid-column: span 1; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ══ AUTH ══════════════════════════════════════════════════════════════ -->
+<div id="authScreen">
+  <div class="auth-card">
+    <h2>🔐 Вход в админ-панель</h2>
+    <div class="form-grid" style="margin-top:8px">
+      <div class="field">
+        <label>Email</label>
+        <input id="authEmail" type="email" placeholder="admin@example.com" />
+      </div>
+      <div class="field">
+        <label>Пароль</label>
+        <input id="authPassword" type="password" placeholder="••••••••" />
+      </div>
+      <button class="btn btn-primary" onclick="signIn()" style="margin-top:4px">
+        Войти
+      </button>
+      <p id="authError" style="color:var(--danger);font-size:13px;min-height:18px"></p>
+    </div>
+  </div>
+</div>
+
+<!-- ══ APP ════════════════════════════════════════════════════════════════ -->
+<div id="app">
+  <nav>
+    <h1>САН Админ</h1>
+    <button onclick="showPage('venues')" id="navVenues" class="active">Заведения</button>
+    <button onclick="showPage('deals')"  id="navDeals">Предложения</button>
+    <button id="signOutBtn" onclick="signOut()">Выйти</button>
+  </nav>
+
+  <!-- VENUES PAGE -->
+  <div class="page active" id="pageVenues">
+    <div class="toolbar">
+      <h2>Заведения</h2>
+      <button class="btn btn-primary" onclick="openVenueModal()">+ Добавить</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th></th><th>Название</th><th>Категория</th>
+            <th>Район</th><th>Телефон</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="venuesBody"><tr><td colspan="6" class="spinner">Загрузка…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- DEALS PAGE -->
+  <div class="page" id="pageDeals">
+    <div class="toolbar">
+      <h2>Предложения</h2>
+      <button class="btn btn-primary" onclick="openDealModal()">+ Добавить</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th></th><th>Название</th><th>Тип</th><th>Заведение</th>
+            <th>Скидка</th><th>Действует до</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="dealsBody"><tr><td colspan="7" class="spinner">Загрузка…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ══ VENUE MODAL ════════════════════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="venueModal">
+  <div class="modal">
+    <h3 id="venueModalTitle">Новое заведение</h3>
+    <div class="form-grid cols2">
+      <div class="field span2">
+        <label>Название</label>
+        <input id="vName" placeholder="Navat" />
+      </div>
+      <div class="field">
+        <label>Категория</label>
+        <select id="vCategory">
+          <option value="cafe">Кафе</option>
+          <option value="coffee">Кофейня</option>
+          <option value="fastfood">Фастфуд</option>
+          <option value="restaurant">Ресторан</option>
+          <option value="teahouse">Чайхана</option>
+          <option value="bakery">Пекарня</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Район</label>
+        <input id="vDistrict" placeholder="Центр" />
+      </div>
+      <div class="field span2">
+        <label>Адрес</label>
+        <input id="vAddress" placeholder="пр. Чуй, 125" />
+      </div>
+      <div class="field">
+        <label>Телефон</label>
+        <input id="vPhone" placeholder="+996 312 000 000" />
+      </div>
+      <div class="field">
+        <label>Emoji</label>
+        <input id="vEmoji" placeholder="🫖" maxlength="4" />
+      </div>
+      <div class="field">
+        <label>Цвет градиента (от)</label>
+        <input id="vGradientFrom" type="color" value="#E65C00" />
+      </div>
+      <div class="field">
+        <label>Цвет градиента (до)</label>
+        <input id="vGradientTo" type="color" value="#F9D423" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('venueModal')">Отмена</button>
+      <button class="btn btn-primary"   onclick="saveVenue()">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ DEAL MODAL ═════════════════════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="dealModal">
+  <div class="modal">
+    <h3 id="dealModalTitle">Новое предложение</h3>
+    <div class="form-grid cols2">
+      <div class="field span2">
+        <label>Заголовок</label>
+        <input id="dTitle" placeholder="−30% на манты по будням" />
+      </div>
+      <div class="field">
+        <label>Тип</label>
+        <select id="dType">
+          <option value="discount">Скидка</option>
+          <option value="promo">Акция</option>
+          <option value="novelty">Новинка</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Заведение</label>
+        <select id="dVenueID"></select>
+      </div>
+      <div class="field span2">
+        <label>Описание</label>
+        <textarea id="dDetails" placeholder="С 11:00 до 15:00 на все виды мантов."></textarea>
+      </div>
+      <div class="field">
+        <label>Emoji</label>
+        <input id="dEmoji" placeholder="🥟" maxlength="4" />
+      </div>
+      <div class="field">
+        <label>Действует до</label>
+        <input id="dValidUntil" type="date" />
+      </div>
+      <div class="field">
+        <label>Старая цена (сом, необяз.)</label>
+        <input id="dOldPrice" type="number" placeholder="" />
+      </div>
+      <div class="field">
+        <label>Новая цена (сом, необяз.)</label>
+        <input id="dNewPrice" type="number" placeholder="" />
+      </div>
+      <div class="field span2">
+        <label>Процент скидки (необяз.)</label>
+        <input id="dDiscountPercent" type="number" placeholder="" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('dealModal')">Отмена</button>
+      <button class="btn btn-primary"   onclick="saveDeal()">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ CONFIRM MODAL ══════════════════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="confirmModal">
+  <div class="modal" style="max-width:380px">
+    <h3>Удалить?</h3>
+    <p style="margin:12px 0;color:var(--muted);font-size:14px" id="confirmText"></p>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('confirmModal')">Отмена</button>
+      <button class="btn btn-danger"    onclick="confirmDelete()">Удалить</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<!-- ══ FIREBASE SDK ════════════════════════════════════════════════════════ -->
+<script type="module">
+import { initializeApp }           from 'https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js';
+import { getAuth, signInWithEmailAndPassword, signOut as fbSignOut, onAuthStateChanged }
+  from 'https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js';
+import { getFirestore, collection, getDocs, doc, setDoc, addDoc, deleteDoc, Timestamp }
+  from 'https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js';
+
+// ── PASTE YOUR FIREBASE CONFIG HERE ──────────────────────────────────────
+const firebaseConfig = {
+  apiKey:            "PASTE_HERE",
+  authDomain:        "PASTE_HERE",
+  projectId:         "PASTE_HERE",
+  storageBucket:     "PASTE_HERE",
+  messagingSenderId: "PASTE_HERE",
+  appId:             "PASTE_HERE",
+};
+// ─────────────────────────────────────────────────────────────────────────
+
+const app  = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db   = getFirestore(app);
+
+// ── STATE ─────────────────────────────────────────────────────────────────
+let venues = [];
+let deals  = [];
+let editingVenueId = null;
+let editingDealId  = null;
+let pendingDeleteFn = null;
+
+// ── AUTH ──────────────────────────────────────────────────────────────────
+onAuthStateChanged(auth, user => {
+  if (user) {
+    document.getElementById('authScreen').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    loadAll();
+  } else {
+    document.getElementById('authScreen').style.display = 'flex';
+    document.getElementById('app').style.display = 'none';
+  }
+});
+
+window.signIn = async () => {
+  const email    = document.getElementById('authEmail').value.trim();
+  const password = document.getElementById('authPassword').value;
+  const errEl    = document.getElementById('authError');
+  errEl.textContent = '';
+  try {
+    await signInWithEmailAndPassword(auth, email, password);
+  } catch (e) {
+    errEl.textContent = 'Неверный email или пароль';
+  }
+};
+
+window.signOut = () => fbSignOut(auth);
+
+// ── LOAD ──────────────────────────────────────────────────────────────────
+async function loadAll() {
+  await Promise.all([loadVenues(), loadDeals()]);
+}
+
+async function loadVenues() {
+  const snap = await getDocs(collection(db, 'venues'));
+  venues = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  venues.sort((a, b) => a.name.localeCompare(b.name));
+  renderVenues();
+  populateVenueSelect();
+}
+
+async function loadDeals() {
+  const snap = await getDocs(collection(db, 'deals'));
+  deals = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  deals.sort((a, b) => a.title.localeCompare(b.title));
+  renderDeals();
+}
+
+// ── RENDER VENUES ─────────────────────────────────────────────────────────
+function renderVenues() {
+  const tbody = document.getElementById('venuesBody');
+  if (!venues.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">Заведений нет</td></tr>';
+    return;
+  }
+  tbody.innerHTML = venues.map(v => `
+    <tr>
+      <td class="emoji-cell">${v.emoji ?? '🍽'}</td>
+      <td><strong>${v.name}</strong><br><small style="color:var(--muted)">${v.address ?? ''}</small></td>
+      <td><span class="badge badge-${v.category}">${categoryLabel(v.category)}</span></td>
+      <td>${v.district ?? ''}</td>
+      <td>${v.phone ?? ''}</td>
+      <td>
+        <div class="row-actions">
+          <button class="btn btn-secondary btn-sm" onclick="openVenueModal('${v.id}')">✏️ Изменить</button>
+          <button class="btn btn-danger btn-sm"    onclick="askDelete('venue','${v.id}','${v.name}')">🗑</button>
+        </div>
+      </td>
+    </tr>`).join('');
+}
+
+// ── RENDER DEALS ──────────────────────────────────────────────────────────
+function renderDeals() {
+  const tbody = document.getElementById('dealsBody');
+  if (!deals.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty">Предложений нет</td></tr>';
+    return;
+  }
+  tbody.innerHTML = deals.map(d => {
+    const venue   = venues.find(v => v.id === d.venueID);
+    const until   = d.validUntil?.toDate ? d.validUntil.toDate() : new Date(d.validUntil);
+    const expired = until < new Date();
+    return `
+    <tr style="${expired ? 'opacity:.45' : ''}">
+      <td class="emoji-cell">${d.emoji ?? '🔥'}</td>
+      <td><strong>${d.title}</strong></td>
+      <td><span class="badge badge-${d.type}">${typeLabel(d.type)}</span></td>
+      <td>${venue ? venue.name : d.venueID}</td>
+      <td>${d.discountPercent ? '−' + d.discountPercent + '%' : (d.newPrice ? d.newPrice + ' сом' : '—')}</td>
+      <td>${until.toLocaleDateString('ru-RU')}${expired ? ' ⚠️' : ''}</td>
+      <td>
+        <div class="row-actions">
+          <button class="btn btn-secondary btn-sm" onclick="openDealModal('${d.id}')">✏️ Изменить</button>
+          <button class="btn btn-danger btn-sm"    onclick="askDelete('deal','${d.id}','${d.title}')">🗑</button>
+        </div>
+      </td>
+    </tr>`}).join('');
+}
+
+function populateVenueSelect() {
+  const sel = document.getElementById('dVenueID');
+  sel.innerHTML = venues.map(v => `<option value="${v.id}">${v.name}</option>`).join('');
+}
+
+// ── VENUE MODAL ───────────────────────────────────────────────────────────
+window.openVenueModal = (id) => {
+  editingVenueId = id ?? null;
+  document.getElementById('venueModalTitle').textContent = id ? 'Изменить заведение' : 'Новое заведение';
+  const v = id ? venues.find(x => x.id === id) : null;
+  document.getElementById('vName').value         = v?.name ?? '';
+  document.getElementById('vCategory').value     = v?.category ?? 'cafe';
+  document.getElementById('vDistrict').value     = v?.district ?? '';
+  document.getElementById('vAddress').value      = v?.address ?? '';
+  document.getElementById('vPhone').value        = v?.phone ?? '';
+  document.getElementById('vEmoji').value        = v?.emoji ?? '';
+  document.getElementById('vGradientFrom').value = v?.gradientFrom ?? '#E65C00';
+  document.getElementById('vGradientTo').value   = v?.gradientTo ?? '#F9D423';
+  document.getElementById('venueModal').classList.remove('hidden');
+};
+
+window.saveVenue = async () => {
+  const data = {
+    name:         document.getElementById('vName').value.trim(),
+    category:     document.getElementById('vCategory').value,
+    district:     document.getElementById('vDistrict').value.trim(),
+    address:      document.getElementById('vAddress').value.trim(),
+    phone:        document.getElementById('vPhone').value.trim(),
+    emoji:        document.getElementById('vEmoji').value.trim(),
+    gradientFrom: document.getElementById('vGradientFrom').value,
+    gradientTo:   document.getElementById('vGradientTo').value,
+    active:       true,
+  };
+  if (!data.name) return toast('Укажи название', 'error');
+  try {
+    if (editingVenueId) {
+      await setDoc(doc(db, 'venues', editingVenueId), data, { merge: true });
+    } else {
+      await addDoc(collection(db, 'venues'), data);
+    }
+    closeModal('venueModal');
+    await loadVenues();
+    toast(editingVenueId ? 'Заведение обновлено' : 'Заведение добавлено', 'success');
+  } catch (e) { toast('Ошибка: ' + e.message, 'error'); }
+};
+
+// ── DEAL MODAL ────────────────────────────────────────────────────────────
+window.openDealModal = (id) => {
+  editingDealId = id ?? null;
+  document.getElementById('dealModalTitle').textContent = id ? 'Изменить предложение' : 'Новое предложение';
+  const d = id ? deals.find(x => x.id === id) : null;
+  document.getElementById('dTitle').value           = d?.title ?? '';
+  document.getElementById('dType').value            = d?.type ?? 'discount';
+  document.getElementById('dVenueID').value         = d?.venueID ?? (venues[0]?.id ?? '');
+  document.getElementById('dDetails').value         = d?.details ?? '';
+  document.getElementById('dEmoji').value           = d?.emoji ?? '';
+  document.getElementById('dOldPrice').value        = d?.oldPrice ?? '';
+  document.getElementById('dNewPrice').value        = d?.newPrice ?? '';
+  document.getElementById('dDiscountPercent').value = d?.discountPercent ?? '';
+  const until = d?.validUntil?.toDate ? d.validUntil.toDate() : new Date();
+  if (!id) until.setDate(until.getDate() + 14);
+  document.getElementById('dValidUntil').value = until.toISOString().slice(0, 10);
+  document.getElementById('dealModal').classList.remove('hidden');
+};
+
+window.saveDeal = async () => {
+  const title = document.getElementById('dTitle').value.trim();
+  const until = document.getElementById('dValidUntil').value;
+  if (!title) return toast('Укажи название', 'error');
+  if (!until) return toast('Укажи дату окончания', 'error');
+
+  const num = v => { const n = Number(v); return isNaN(n) || v === '' ? null : n; };
+  const data = {
+    title,
+    type:            document.getElementById('dType').value,
+    venueID:         document.getElementById('dVenueID').value,
+    details:         document.getElementById('dDetails').value.trim(),
+    emoji:           document.getElementById('dEmoji').value.trim(),
+    validUntil:      Timestamp.fromDate(new Date(until + 'T23:59:59')),
+    oldPrice:        num(document.getElementById('dOldPrice').value),
+    newPrice:        num(document.getElementById('dNewPrice').value),
+    discountPercent: num(document.getElementById('dDiscountPercent').value),
+  };
+  // Strip nulls
+  Object.keys(data).forEach(k => data[k] === null && delete data[k]);
+
+  try {
+    if (editingDealId) {
+      await setDoc(doc(db, 'deals', editingDealId), data, { merge: true });
+    } else {
+      await addDoc(collection(db, 'deals'), data);
+    }
+    closeModal('dealModal');
+    await loadDeals();
+    toast(editingDealId ? 'Предложение обновлено' : 'Предложение добавлено', 'success');
+  } catch (e) { toast('Ошибка: ' + e.message, 'error'); }
+};
+
+// ── DELETE ────────────────────────────────────────────────────────────────
+window.askDelete = (type, id, name) => {
+  document.getElementById('confirmText').textContent = `«${name}» будет удалено безвозвратно.`;
+  pendingDeleteFn = async () => {
+    await deleteDoc(doc(db, type === 'venue' ? 'venues' : 'deals', id));
+    closeModal('confirmModal');
+    if (type === 'venue') { await loadVenues(); toast('Заведение удалено', 'success'); }
+    else                  { await loadDeals();  toast('Предложение удалено', 'success'); }
+  };
+  document.getElementById('confirmModal').classList.remove('hidden');
+};
+window.confirmDelete = () => pendingDeleteFn?.();
+
+// ── HELPERS ───────────────────────────────────────────────────────────────
+window.closeModal = id => document.getElementById(id).classList.add('hidden');
+
+window.showPage = (page) => {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('nav button:not(#signOutBtn)').forEach(b => b.classList.remove('active'));
+  document.getElementById('page' + page.charAt(0).toUpperCase() + page.slice(1)).classList.add('active');
+  document.getElementById('nav'  + page.charAt(0).toUpperCase() + page.slice(1)).classList.add('active');
+};
+
+function categoryLabel(c) {
+  return { cafe:'Кафе', coffee:'Кофейня', fastfood:'Фастфуд',
+           restaurant:'Ресторан', teahouse:'Чайхана', bakery:'Пекарня' }[c] ?? c;
+}
+function typeLabel(t) {
+  return { discount:'Скидка', promo:'Акция', novelty:'Новинка' }[t] ?? t;
+}
+
+let toastTimer;
+function toast(msg, type = 'success') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show ' + type;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.className = '', 3000);
+}
+
+// Close modals on overlay click
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+  overlay.addEventListener('click', e => {
+    if (e.target === overlay) overlay.classList.add('hidden');
+  });
+});
+</script>
+</body>
+</html>
