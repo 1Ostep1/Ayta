@@ -240,6 +240,10 @@
         <label>Цвет градиента (до)</label>
         <input id="vGradientTo" type="color" value="#F9D423" />
       </div>
+      <div class="field span2">
+        <label>Ссылка на фото (URL, необяз.)</label>
+        <input id="vImageURL" type="url" placeholder="https://example.com/photo.jpg" />
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('venueModal')">Отмена</button>
@@ -459,6 +463,7 @@ window.openVenueModal = (id) => {
   document.getElementById('vEmoji').value        = v?.emoji ?? '';
   document.getElementById('vGradientFrom').value = v?.gradientFrom ?? '#E65C00';
   document.getElementById('vGradientTo').value   = v?.gradientTo ?? '#F9D423';
+  document.getElementById('vImageURL').value     = v?.imageURL ?? '';
   document.getElementById('venueModal').classList.remove('hidden');
 };
 
@@ -473,6 +478,8 @@ window.saveVenue = async () => {
     gradientFrom: document.getElementById('vGradientFrom').value,
     gradientTo:   document.getElementById('vGradientTo').value,
     active:       true,
+    ...(document.getElementById('vImageURL').value.trim()
+        ? { imageURL: document.getElementById('vImageURL').value.trim() } : {}),
   };
   if (!data.name) return toast('Укажи название', 'error');
   try {
