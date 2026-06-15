@@ -316,7 +316,8 @@ extension Deal {
             validUntil: (d["validUntil"] as? Timestamp)?.dateValue() ?? .now,
             status: statusMap[d["status"] as? String ?? "active"] ?? .active,
             startDate: (d["startDate"] as? Timestamp)?.dateValue(),
-            imageEmojis: d["imageEmojis"] as? [String] ?? []
+            imageEmojis: d["imageEmojis"] as? [String] ?? [],
+            imageURL: d["imageURL"] as? String
         )
     }
 }
@@ -430,6 +431,7 @@ extension HostVenueDTO {
             "photoEmojis": [emoji],
             "status": status,
             "items": items.map(\.firestoreMap),
+            "imageURL": imageURL,
             "todaySpecial": todaySpecial ?? ""
         ]
         if (todaySpecial ?? "").isEmpty { d["todaySpecial"] = "" }
@@ -455,7 +457,8 @@ extension HostVenueDTO {
             isPaused: d["isPaused"] as? Bool ?? false,
             isVerified: d["isVerified"] as? Bool ?? false,
             status: d["status"] as? String ?? ModerationStatus.approved.rawValue,
-            items: VenueItem.parse(d["items"]))
+            items: VenueItem.parse(d["items"]),
+            imageURL: d["imageURL"] as? String ?? "")
     }
 }
 
@@ -477,6 +480,7 @@ extension HostDealDTO {
         if let newPrice { d["newPrice"] = newPrice }
         if let discountPercent { d["discountPercent"] = discountPercent }
         if let endDate { d["endDate"] = Timestamp(date: endDate) }
+        d["imageURL"] = imageURL
         return d
     }
 
@@ -494,7 +498,8 @@ extension HostDealDTO {
             discountPercent: (d["discountPercent"] as? NSNumber)?.intValue,
             startDate: (d["startDate"] as? Timestamp)?.dateValue() ?? .now,
             endDate: (d["endDate"] as? Timestamp)?.dateValue(),
-            statusRaw: status.rawValue)
+            statusRaw: status.rawValue,
+            imageURL: d["imageURL"] as? String ?? "")
     }
 }
 

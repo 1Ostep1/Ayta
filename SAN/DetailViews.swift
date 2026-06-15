@@ -48,9 +48,8 @@ struct DealDetailView: View {
 
     private var hero: some View {
         ZStack {
-            LinearGradient(colors: venue?.gradient ?? [.sanAccent, .orange],
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-            Text(deal.emoji).font(.system(size: 100)).shadow(radius: 10)
+            CoverImage(urlString: deal.imageURL, gradient: venue?.gradient ?? [.sanAccent, .orange],
+                       emoji: deal.emoji, emojiSize: 100)
             if let percent = deal.discountPercent {
                 Text("−\(percent)%")
                     .font(.title.weight(.heavy)).foregroundStyle(.white)
@@ -173,10 +172,8 @@ struct VenueDetailView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .bottomLeading) {
-                LinearGradient(colors: venue.gradient, startPoint: .topLeading, endPoint: .bottomTrailing)
-                    .frame(height: 190)
-                Text(venue.emoji).font(.system(size: 70))
-                    .frame(maxWidth: .infinity).frame(height: 190)
+                CoverImage(urlString: venue.imageURL, gradient: venue.gradient, emoji: venue.emoji, emojiSize: 70)
+                    .frame(height: 190).clipped()
                 VenueAvatar(venue: venue, size: 64)
                     .overlay(Circle().stroke(Color(.systemBackground), lineWidth: 3))
                     .offset(x: 16, y: 32)
@@ -352,9 +349,8 @@ struct VenueDetailView: View {
                 ForEach(deals) { deal in
                     Button { store.log(AnalyticsMetric.dealTaps, for: venue.id); activeSheet = .deal(deal) } label: {
                         ZStack(alignment: .bottomLeading) {
-                            LinearGradient(colors: venue.gradient, startPoint: .topLeading, endPoint: .bottomTrailing)
-                            Text(deal.emoji).font(.system(size: 34))
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            CoverImage(urlString: deal.imageURL, gradient: venue.gradient,
+                                       emoji: deal.emoji, emojiSize: 34)
                             if let pct = deal.discountPercent {
                                 Text("−\(pct)%")
                                     .font(.caption2.weight(.bold)).foregroundStyle(.white)

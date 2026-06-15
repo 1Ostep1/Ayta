@@ -172,6 +172,35 @@ struct DealCard: View {
     }
 }
 
+// MARK: - Обложка (картинка по ссылке или градиент + эмодзи)
+
+struct CoverImage: View {
+    let urlString: String?
+    let gradient: [Color]
+    let emoji: String
+    var emojiSize: CGFloat = 64
+
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: gradient, startPoint: .topLeading, endPoint: .bottomTrailing)
+            if let s = urlString, !s.isEmpty, let url = URL(string: s) {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().scaledToFill()
+                    case .empty:
+                        ProgressView().tint(.white)
+                    default:
+                        Text(emoji).font(.system(size: emojiSize)).shadow(radius: 6)
+                    }
+                }
+            } else {
+                Text(emoji).font(.system(size: emojiSize)).shadow(radius: 6)
+            }
+        }
+    }
+}
+
 // MARK: - Звёзды рейтинга
 
 struct StarRatingView: View {
@@ -274,9 +303,7 @@ struct VenueCard: View {
 
     private var cover: some View {
         ZStack(alignment: .topLeading) {
-            LinearGradient(colors: venue.gradient, startPoint: .topLeading, endPoint: .bottomTrailing)
-            Text(venue.emoji).font(.system(size: 64)).shadow(radius: 6)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            CoverImage(urlString: venue.imageURL, gradient: venue.gradient, emoji: venue.emoji)
 
             HStack {
                 if isSponsored {

@@ -345,6 +345,7 @@ struct HostVenueFormView: View {
     @State private var longitude: String
     @State private var openHour: Int
     @State private var closeHour: Int
+    @State private var imageURL: String
 
     init(existing: HostVenueDTO?) {
         self.existing = existing
@@ -358,6 +359,7 @@ struct HostVenueFormView: View {
         _longitude = State(initialValue: existing.map { String($0.longitude) } ?? String(City.bishkek.longitude))
         _openHour = State(initialValue: existing?.openHour ?? 9)
         _closeHour = State(initialValue: existing?.closeHour ?? 22)
+        _imageURL = State(initialValue: existing?.imageURL ?? "")
     }
 
     var body: some View {
@@ -372,6 +374,16 @@ struct HostVenueFormView: View {
                     TextField("Район", text: $district)
                     TextField("Адрес", text: $address)
                     TextField("Телефон", text: $phone).keyboardType(.phonePad)
+                }
+                Section("Обложка") {
+                    TextField("Ссылка на фото (https://…)", text: $imageURL)
+                        .keyboardType(.URL).autocapitalization(.none)
+                    if let url = URL(string: imageURL), !imageURL.isEmpty {
+                        AsyncImage(url: url) { img in
+                            img.resizable().scaledToFill()
+                        } placeholder: { Color(.systemGray6) }
+                        .frame(height: 120).clipped().clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
                 }
                 Section("Координаты (Бишкек по умолчанию)") {
                     TextField("Широта", text: $latitude).keyboardType(.decimalPad)
@@ -400,11 +412,13 @@ struct HostVenueFormView: View {
             dto.name = name; dto.categoryRaw = category.rawValue; dto.district = district
             dto.address = address; dto.phone = phone; dto.emoji = emoji
             dto.latitude = lat; dto.longitude = lng; dto.openHour = openHour; dto.closeHour = closeHour
+            dto.imageURL = imageURL.trimmingCharacters(in: .whitespaces)
             host.updateVenue(dto)
         } else {
             host.addVenue(name: name, category: category, district: district, address: address,
                           phone: phone, emoji: emoji, latitude: lat, longitude: lng,
-                          openHour: openHour, closeHour: closeHour)
+                          openHour: openHour, closeHour: closeHour,
+                          imageURL: imageURL.trimmingCharacters(in: .whitespaces))
         }
         dismiss()
     }
@@ -427,6 +441,7 @@ struct HostDealFormView: View {
     @State private var hasEnd: Bool
     @State private var endDate: Date
     @State private var isDraft: Bool
+    @State private var imageURL: String
 
     init(venueID: String, existing: HostDealDTO?) {
         self.venueID = venueID
@@ -440,6 +455,7 @@ struct HostDealFormView: View {
         _hasEnd = State(initialValue: existing?.endDate != nil)
         _endDate = State(initialValue: existing?.endDate ?? Calendar.current.date(byAdding: .day, value: 14, to: .now)!)
         _isDraft = State(initialValue: existing?.status == .draft)
+        _imageURL = State(initialValue: existing?.imageURL ?? "")
     }
 
     var body: some View {
@@ -456,6 +472,10 @@ struct HostDealFormView: View {
                 Section("Цена / скидка (необязательно)") {
                     TextField("Новая цена, сом", text: $newPrice).keyboardType(.numberPad)
                     TextField("Процент скидки", text: $discount).keyboardType(.numberPad)
+                }
+                Section("Фото (необязательно)") {
+                    TextField("Ссылка на фото (https://…)", text: $imageURL)
+                        .keyboardType(.URL).autocapitalization(.none)
                 }
                 Section("Срок") {
                     Toggle("Есть дата окончания", isOn: $hasEnd)
@@ -483,7 +503,8 @@ struct HostDealFormView: View {
             newPrice: Int(newPrice), discountPercent: Int(discount),
             startDate: existing?.startDate ?? .now,
             endDate: hasEnd ? endDate : nil,
-            statusRaw: (isDraft ? DealStatus.draft : .active).rawValue)
+            statusRaw: (isDraft ? DealStatus.draft : .active).rawValue,
+            imageURL: imageURL.trimmingCharacters(in: .whitespaces))
         host.saveDeal(dto)
         dismiss()
     }

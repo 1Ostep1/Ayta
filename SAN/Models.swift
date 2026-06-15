@@ -207,6 +207,7 @@ struct Deal: Identifiable, Hashable {
     var status: DealStatus = .active
     var startDate: Date? = nil
     var imageEmojis: [String] = []   // до 5 изображений (плейсхолдеры)
+    var imageURL: String? = nil      // ссылка на фото предложения
 
     /// Протухшие/на паузе/черновики не показываются в пользовательской ленте.
     var isActive: Bool { status == .active && validUntil >= .now }

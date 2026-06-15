@@ -44,6 +44,7 @@ struct HostVenueDTO: Codable, Identifiable {
     var isVerified: Bool
     var status: String = ModerationStatus.pending.rawValue   // модерация
     var items: [VenueItem] = []                              // блюда/услуги
+    var imageURL: String = ""                                // ссылка на обложку
 
     var category: VenueCategory { VenueCategory(rawValue: categoryRaw) ?? .cafe }
     var moderation: ModerationStatus { ModerationStatus(rawValue: status) ?? .pending }
@@ -52,7 +53,7 @@ struct HostVenueDTO: Codable, Identifiable {
         Venue(
             id: id, name: name, category: category, district: district,
             address: address, phone: phone, emoji: emoji,
-            gradient: [.sanAccent, .orange], imageURL: nil,
+            gradient: [.sanAccent, .orange], imageURL: imageURL.isEmpty ? nil : imageURL,
             rating: 0, reviewCount: 0, isVerified: isVerified, savedByCount: 0,
             citySlug: City.bishkek.id, latitude: latitude, longitude: longitude,
             todaySpecialText: (todaySpecial?.isEmpty == false) ? todaySpecial : nil,
@@ -76,6 +77,7 @@ struct HostDealDTO: Codable, Identifiable {
     var startDate: Date
     var endDate: Date?
     var statusRaw: String
+    var imageURL: String = ""
 
     var type: DealType { DealType(rawValue: typeRaw) ?? .discount }
     var status: DealStatus { DealStatus(rawValue: statusRaw) ?? .active }
@@ -86,7 +88,8 @@ struct HostDealDTO: Codable, Identifiable {
             emoji: emoji, oldPrice: nil, newPrice: newPrice,
             discountPercent: discountPercent,
             validUntil: endDate ?? Calendar.current.date(byAdding: .year, value: 1, to: .now)!,
-            status: status, startDate: startDate, imageEmojis: [emoji]
+            status: status, startDate: startDate, imageEmojis: [emoji],
+            imageURL: imageURL.isEmpty ? nil : imageURL
         )
     }
 }
@@ -238,12 +241,13 @@ final class HostStore: ObservableObject {
     @discardableResult
     func addVenue(name: String, category: VenueCategory, district: String, address: String,
                   phone: String, emoji: String, latitude: Double, longitude: Double,
-                  openHour: Int, closeHour: Int) -> HostVenueDTO {
-        let dto = HostVenueDTO(
+                  openHour: Int, closeHour: Int, imageURL: String = "") -> HostVenueDTO {
+        var dto = HostVenueDTO(
             id: "hv_\(UUID().uuidString.prefix(8))", name: name, categoryRaw: category.rawValue,
             district: district, address: address, phone: phone, emoji: emoji,
             latitude: latitude, longitude: longitude, openHour: openHour, closeHour: closeHour,
             todaySpecial: nil, isPaused: false, isVerified: false)
+        dto.imageURL = imageURL
         venueDTOs.append(dto)
         persistVenues()
         remoteSaveVenue(dto)
