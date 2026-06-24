@@ -1,12 +1,12 @@
 import { Bot, InlineKeyboard } from "grammy";
 import http from "node:http";
 import "dotenv/config";
-import { ABOUT, FAQ, matchFAQ } from "./faq.js";
+import { KNOWLEDGE, USER_FAQ, BUSINESS_FAQ, matchFAQ } from "./faq.js";
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const GROQ_KEY = process.env.GROQ_API_KEY;                 // бесплатный ключ: console.groq.com
 const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
-const HANDOFF = process.env.SUPPORT_CONTACT || "ostepp1@gmail.com";
+const HANDOFF = process.env.SUPPORT_CONTACT || "WhatsApp +996707266556 или email ostepp1@gmail.com";
 
 if (!TOKEN) {
   console.error("❌ Укажи TELEGRAM_BOT_TOKEN в .env (получи у @BotFather).");
@@ -15,43 +15,59 @@ if (!TOKEN) {
 
 const bot = new Bot(TOKEN);
 
-const SYSTEM_PROMPT = `Ты — ИИ-помощник поддержки приложения «Ayta».
+const SYSTEM_PROMPT = `Ты — ИИ-помощник поддержки приложения «Ayta» (Bonus.kg).
 Отвечай ТОЛЬКО на русском, кратко (1–4 предложения), дружелюбно и по делу.
-Отвечай на вопросы пользователей о приложении, опираясь на справку ниже.
+Помогай и обычным пользователям, и заведениям (бизнесу), опираясь на справку ниже.
 Если вопрос не про Ayta или ты не уверен — честно скажи и предложи написать живой поддержке: ${HANDOFF}.
 Не выдумывай функции, которых нет в справке.
 
-=== СПРАВКА О ПРИЛОЖЕНИИ ===
-${ABOUT}
-
-=== ЧАСТЫЕ ВОПРОСЫ ===
-${FAQ.map((f, i) => `${i + 1}. ${f.q}\n${f.a}`).join("\n\n")}`;
+=== БАЗА ЗНАНИЙ ===
+${KNOWLEDGE}`;
 
 // /start
 bot.command("start", (ctx) =>
   ctx.reply(
-    "👋 Привет! Я — помощник поддержки Ayta.\n\n" +
-      "Задай любой вопрос о приложении, бонусах или купонах — отвечу сразу.\n" +
-      "Или загляни в частые вопросы: /faq",
-    { reply_markup: new InlineKeyboard().text("❓ Частые вопросы", "faq_menu") }
+    "👋 Привет! Я — помощник поддержки Ayta (Bonus.kg).\n\n" +
+      "Задай любой вопрос о приложении, бонусах, купонах или размещении заведения — отвечу сразу.\n" +
+      "Или открой частые вопросы: /faq",
+    { reply_markup: categoryKeyboard() }
   )
 );
 
-// /faq — список вопросов кнопками
-function faqKeyboard() {
+// Меню категорий FAQ
+function categoryKeyboard() {
+  return new InlineKeyboard()
+    .text("🙋 Для пользователей", "cat_u").row()
+    .text("🏪 Для бизнеса", "cat_b");
+}
+// Список вопросов одной категории: data = "u3" / "b7"
+function listKeyboard(prefix, list) {
   const kb = new InlineKeyboard();
-  FAQ.forEach((f, i) => kb.text(f.q, `faq_${i}`).row());
+  list.forEach((f, i) => kb.text(f.q, `${prefix}${i}`).row());
+  kb.text("⬅️ Назад", "faq_menu");
   return kb;
 }
-bot.command("faq", (ctx) => ctx.reply("Выбери вопрос:", { reply_markup: faqKeyboard() }));
+
+bot.command("faq", (ctx) =>
+  ctx.reply("О чём вопрос?", { reply_markup: categoryKeyboard() })
+);
 bot.callbackQuery("faq_menu", async (ctx) => {
   await ctx.answerCallbackQuery();
-  await ctx.reply("Выбери вопрос:", { reply_markup: faqKeyboard() });
+  await ctx.reply("О чём вопрос?", { reply_markup: categoryKeyboard() });
 });
-bot.callbackQuery(/^faq_(\d+)$/, async (ctx) => {
-  const i = Number(ctx.match[1]);
+bot.callbackQuery("cat_u", async (ctx) => {
   await ctx.answerCallbackQuery();
-  if (FAQ[i]) await ctx.reply(`❓ ${FAQ[i].q}\n\n${FAQ[i].a}`);
+  await ctx.reply("Вопросы пользователей:", { reply_markup: listKeyboard("u", USER_FAQ) });
+});
+bot.callbackQuery("cat_b", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  await ctx.reply("Вопросы бизнеса:", { reply_markup: listKeyboard("b", BUSINESS_FAQ) });
+});
+bot.callbackQuery(/^([ub])(\d+)$/, async (ctx) => {
+  const list = ctx.match[1] === "u" ? USER_FAQ : BUSINESS_FAQ;
+  const item = list[Number(ctx.match[2])];
+  await ctx.answerCallbackQuery();
+  if (item) await ctx.reply(`❓ ${item.q}\n\n${item.a}`);
 });
 
 // Любой текст → ИИ-ответ (с фолбэком на FAQ)
