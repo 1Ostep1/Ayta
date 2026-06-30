@@ -8,6 +8,9 @@ serviceAccountKey.json
 !.env.example
 !**/.env.example
 
+# ───── Firestore local backups (могут содержать данные) ─────
+backup-*.json
+
 # ───── Node ─────
 node_modules/
 functions/node_modules/

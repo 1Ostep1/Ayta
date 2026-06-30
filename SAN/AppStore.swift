@@ -25,6 +25,12 @@ final class AppStore: ObservableObject {
 
     private let repository: DataRepository = AppConfig.makeDataRepository()
     private let analytics: AnalyticsService = AppConfig.makeAnalyticsService()
+    private let push: PushService = AppConfig.makePushService()
+
+    /// Пользователь реально посетил заведение (погасил у него хотя бы один купон).
+    func hasVisited(_ venueID: String) -> Bool {
+        deals.contains { $0.venueID == venueID && redeemedDealIDs.contains($0.id) }
+    }
 
     /// Лог события аналитики (просмотр/сохранение/звонок/маршрут/клик по акции).
     func log(_ metric: String, for venueID: String) {
@@ -38,6 +44,7 @@ final class AppStore: ObservableObject {
 
     init() {
         favoriteDealIDs = Set(UserDefaults.standard.stringArray(forKey: Self.dealsKey) ?? [])
+        redeemedDealIDs = Set(UserDefaults.standard.stringArray(forKey: Self.redeemedKey) ?? [])
         savedVenueIDs = Set(UserDefaults.standard.stringArray(forKey: Self.venuesKey) ?? [])
         selectedCitySlug = UserDefaults.standard.string(forKey: Self.cityKey) ?? City.bishkek.id
         reviews = MockData.reviews
@@ -110,6 +117,42 @@ final class AppStore: ObservableObject {
         venues.filter { $0.citySlug == selectedCitySlug && $0.isApproved && !$0.isPaused }
     }
 
+    /// Заведения города, отсортированные по релевантности (рейтинг, отзывы,
+    /// сохранения, верификация, спецпредложения, активные акции, «открыто сейчас»).
+    func rankedVenues(category: VenueCategory? = nil) -> [Venue] {
+        venuesInSelectedCity()
+            .filter { category == nil || $0.category == category }
+            .sorted { venueScore($0) > venueScore($1) }
+    }
+
+    // MARK: - Ранжирование (алгоритм выдачи)
+
+    /// Оценка привлекательности заведения. Чем выше — тем выше в списках.
+    func venueScore(_ v: Venue) -> Double {
+        let agg = aggregate(for: v)
+        var s = 0.0
+        s += agg.rating * 2.0                                   // 0…10 — качество
+        s += _DarwinFoundation1.log(Double(agg.count) + 1) * 1.5                  // популярность по отзывам
+        s += _DarwinFoundation1.log(Double(v.savedByCount) + 1) * 1.0             // сохранения
+        if v.isVerified { s += 3.0 }                           // проверенные выше
+        if v.hasTodaySpecial { s += 1.5 }                      // есть «сегодня»
+        if v.isOpenNow { s += 1.0 }                            // открыто сейчас
+        let activeDeals = deals.filter { $0.venueID == v.id && $0.isActive }.count
+        s += min(Double(activeDeals), 5) * 0.8                 // активные акции
+        return s
+    }
+
+    /// Оценка предложения для ленты: релевантность заведения + свежесть.
+    func dealScore(_ d: Deal) -> Double {
+        var s = venue(for: d).map(venueScore) ?? 0
+        if d.isFresh { s += 6.0 }                              // последние 48ч — буст
+        if let start = d.startDate {                           // плавное затухание ~10 дней
+            let days = -start.timeIntervalSinceNow / 86_400
+            s += max(0, 10 - days)
+        }
+        return s
+    }
+
     // MARK: - Предложения
 
     var activeDeals: [Deal] {
@@ -127,7 +170,7 @@ final class AppStore: ObservableObject {
             .filter { category == nil || $0.category == category }
         let ids = Set(cityVenues.map(\.id))
         return deals.filter { $0.isActive && ids.contains($0.venueID) }
-            .sorted { ($0.startDate ?? .distantPast) > ($1.startDate ?? .distantPast) }
+            .sorted { dealScore($0) > dealScore($1) }
     }
 
     func allDeals(for venue: Venue) -> [Deal] {
@@ -164,6 +207,56 @@ final class AppStore: ObservableObject {
         else { favoriteDealIDs.insert(deal.id) }
     }
 
+    // MARK: - Погашение купонов (ключевая метрика)
+
+    @Published var redeemedDealIDs: Set<String> {
+        didSet { UserDefaults.standard.set(Array(redeemedDealIDs), forKey: Self.redeemedKey) }
+    }
+    private static let redeemedKey = "san.redeemed"
+
+    func hasRedeemed(_ deal: Deal) -> Bool { redeemedDealIDs.contains(deal.id) }
+
+    /// Пользователь погасил купон в заведении. Одноразово на устройстве.
+    /// Считает метрику для хост-аналитики и шлёт продуктовое событие.
+    func redeem(_ deal: Deal) {
+        guard !isGuest, !redeemedDealIDs.contains(deal.id) else { return }
+        redeemedDealIDs.insert(deal.id)
+        AnalyticsLog.log(.dealRedeem, ["deal_id": deal.id, "venue_id": deal.venueID,
+                                       "type": deal.type.rawValue])
+        // Серверный счётчик redemptions делает Cloud Function по этому документу.
+        Task { try? await repository.logRedemption(userID: currentUserID,
+                                                    dealID: deal.id, venueID: deal.venueID) }
+    }
+
+    // MARK: - Рефералка
+
+    /// Личный код пользователя для приглашений.
+    var referralCode: String { currentUserID }
+
+    /// Начисляет приветственный бонус приглашённому при первом входе по чужой ссылке.
+    /// Награду пригласившему раздаёт бэкенд (по событию referral_join).
+    func grantPendingReferral(bonus: BonusEngine) {
+        guard !isGuest else { return }
+        let d = UserDefaults.standard
+        guard !d.bool(forKey: "san.referrer.credited"),
+              let ref = d.string(forKey: DeepLinkRouter.pendingReferrerKey), !ref.isEmpty,
+              ref != currentUserID else { return }
+        d.set(true, forKey: "san.referrer.credited")
+        bonus.addFromGame(100)   // приветственный бонус приглашённому
+        AnalyticsLog.log(.referralJoin, ["referrer_id": ref, "user_id": currentUserID])
+        // Записываем реферал — Cloud Function начислит бонус пригласившему.
+        Task { try? await repository.recordReferral(inviteeID: currentUserID, referrerID: ref) }
+    }
+
+    /// Забирает серверные бонусы (награды за приглашённых) при запуске.
+    func claimReferralBonuses(bonus: BonusEngine) {
+        guard !isGuest else { return }
+        Task {
+            let total = (try? await repository.claimBonusGrants(userID: currentUserID)) ?? 0
+            if total > 0 { bonus.addFromGame(total) }
+        }
+    }
+
     func unsaveDeal(_ deal: Deal) { favoriteDealIDs.remove(deal.id) }
 
     // MARK: - Сохранённые заведения (Saved Venues)
@@ -182,8 +275,15 @@ final class AppStore: ObservableObject {
 
     func toggleSave(_ venue: Venue) {
         guard !isGuest else { return }
-        if savedVenueIDs.contains(venue.id) { savedVenueIDs.remove(venue.id) }
-        else { savedVenueIDs.insert(venue.id) }
+        if savedVenueIDs.contains(venue.id) {
+            savedVenueIDs.remove(venue.id)
+            push.unsubscribe(topic: "venue_\(venue.id)")
+        } else {
+            savedVenueIDs.insert(venue.id)
+            // Подписка на новые акции этого заведения (доставку делает бэкенд-функция).
+            push.subscribe(topic: "venue_\(venue.id)")
+            AnalyticsLog.log(.saveDeal, ["venue_id": venue.id])
+        }
     }
 
     func unsaveVenue(_ venue: Venue) { savedVenueIDs.remove(venue.id) }
@@ -304,6 +404,7 @@ final class AppStore: ObservableObject {
     func saveReview(venueID: String, rating: Int, text: String, photos: [String],
                     itemID: String? = nil, itemName: String? = nil) {
         guard !isGuest else { return }
+        let verified = hasVisited(venueID)
         let saved: Review
         if let idx = reviews.firstIndex(where: {
             $0.venueID == venueID && $0.authorID == currentUserID && $0.itemID == itemID
@@ -312,6 +413,7 @@ final class AppStore: ObservableObject {
             reviews[idx].text = text
             reviews[idx].photos = photos        // URL-фото
             reviews[idx].itemName = itemName
+            reviews[idx].verifiedVisit = verified
             reviews[idx].updatedAt = .now
             saved = reviews[idx]
         } else {
@@ -319,10 +421,13 @@ final class AppStore: ObservableObject {
                            authorID: currentUserID, authorName: currentUserName,
                            rating: rating, text: text, photoEmojis: [],
                            createdAt: .now, updatedAt: .now, hostReply: nil,
-                           itemID: itemID, itemName: itemName, photos: photos)
+                           itemID: itemID, itemName: itemName, photos: photos,
+                           verifiedVisit: verified)
             reviews.append(r)
             saved = r
         }
+        AnalyticsLog.log(.reviewPosted, ["venue_id": venueID, "rating": rating,
+                                         "verified": verified])
         persistUserReviews()
         // Публикуем отзыв в Firestore — виден всем и хосту.
         Task { try? await repository.saveReview(saved) }

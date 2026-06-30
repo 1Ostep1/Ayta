@@ -277,6 +277,22 @@ struct Deal: Identifiable, Hashable {
     /// Протухшие/на паузе/черновики не показываются в пользовательской ленте.
     var isActive: Bool { status == .active && validUntil >= .now }
 
+    /// Можно ли предъявить купон сотруднику. Новинки и объявления — это просто
+    /// новости/информация, купона у них нет.
+    var isRedeemable: Bool { type == .discount || type == .promo }
+
+    /// Часов до конца действия.
+    var hoursLeft: Int { max(0, Int(validUntil.timeIntervalSinceNow / 3600)) }
+
+    /// Бейдж срочности для активных предложений (или nil).
+    var urgencyText: String? {
+        guard isActive else { return nil }
+        if Calendar.current.isDateInToday(validUntil) { return "Заканчивается сегодня" }
+        let h = hoursLeft
+        if h > 0 && h <= 48 { return "Осталось \(h) ч" }
+        return nil
+    }
+
     /// Добавлено в последние 48ч — буст в ранжировании.
     var isFresh: Bool {
         guard let start = startDate else { return false }
@@ -306,6 +322,7 @@ struct Review: Identifiable, Hashable, Codable {
     var itemID: String? = nil    // объект отзыва (блюдо/услуга), если выбран
     var itemName: String? = nil
     var photos: [String] = []    // реальные фото (URL); photoEmojis — легаси-фолбэк
+    var verifiedVisit: Bool = false   // автор реально гасил купон в этом заведении
 
     var initial: String { String(authorName.prefix(1)).uppercased() }
 

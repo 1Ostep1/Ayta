@@ -4,6 +4,8 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Ayta — Админ-панель</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -160,6 +162,7 @@
     <button onclick="showPage('venues')" id="navVenues" class="active">Заведения</button>
     <button onclick="showPage('deals')"  id="navDeals">Предложения</button>
     <button onclick="showPage('hosts')"  id="navHosts">Хосты</button>
+    <button onclick="showPage('boosts')" id="navBoosts">Реклама</button>
     <button id="signOutBtn" onclick="signOut()">Выйти</button>
   </nav>
 
@@ -211,6 +214,19 @@
           </tr>
         </thead>
         <tbody id="dealsBody"><tr><td colspan="7" class="spinner">Загрузка…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- BOOSTS / PUSH PAGE -->
+  <div class="page" id="pageBoosts">
+    <div class="toolbar"><h2>Реклама и push-кампании</h2></div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Заголовок</th><th>Текст</th><th>Город</th><th>Статус</th><th>Действия</th></tr>
+        </thead>
+        <tbody id="boostsBody"><tr><td colspan="5" class="spinner">Загрузка…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -271,6 +287,12 @@
         <label>Сегодняшний специал (todaySpecial) — пусто = убрать</label>
         <input id="vTodaySpecial" placeholder="Плов по-фергански весь день — 290 сом" maxlength="100" />
       </div>
+      <div class="field span2">
+        <label>Точка на карте — кликни по карте, перетащи метку или найди по адресу</label>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="geocodeAddress()"
+                style="margin-bottom:8px;">📍 Найти по адресу</button>
+        <div id="vMap" style="height:260px;border-radius:12px;overflow:hidden;"></div>
+      </div>
       <div class="field">
         <label>Широта (latitude)</label>
         <input id="vLatitude" type="number" step="any" placeholder="42.8746" />
@@ -279,13 +301,11 @@
         <label>Долгота (longitude)</label>
         <input id="vLongitude" type="number" step="any" placeholder="74.5698" />
       </div>
-      <div class="field">
-        <label>Открытие (час)</label>
-        <input id="vOpenHour" type="number" min="0" max="24" placeholder="9" />
-      </div>
-      <div class="field">
-        <label>Закрытие (час)</label>
-        <input id="vCloseHour" type="number" min="0" max="24" placeholder="22" />
+      <div class="field span2">
+        <label>Часы работы по дням недели</label>
+        <div id="vWeekHours"></div>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="applyMondayToAll()"
+                style="margin-top:8px;">Применить понедельник ко всем</button>
       </div>
       <div class="field span2">
         <label>PDF-меню (URL, необяз.)</label>
@@ -615,8 +635,57 @@ window.signOut = () => fbSignOut(auth);
 // ── LOAD ──────────────────────────────────────────────────────────────────
 async function loadAll() {
   // allSettled: сбой одной коллекции (напр. нет правил) не ломает остальные.
-  await Promise.allSettled([loadVenues(), loadDeals(), loadHosts()]);
+  await Promise.allSettled([loadVenues(), loadDeals(), loadHosts(), loadBoosts()]);
 }
+
+// ── BOOSTS / PUSH ───────────────────────────────────────────────────────────
+function boostStatus(c) {
+  switch (c.status) {
+    case 'pending':  return { label: 'На модерации', cls: 'pending' };
+    case 'approved': return { label: 'Одобрено', cls: 'novelty' };
+    case 'sent':     return { label: `Отправлено${c.recipients != null ? ` (${c.recipients})` : ''}`, cls: 'promo' };
+    case 'rejected': return { label: 'Отклонено', cls: 'discount' };
+    case 'error':    return { label: 'Ошибка', cls: 'discount' };
+    default:         return { label: c.status || '—', cls: 'pending' };
+  }
+}
+
+async function loadBoosts() {
+  const body = document.getElementById('boostsBody');
+  try {
+    const snap = await getDocs(collection(db, 'pushCampaigns'));
+    const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+    if (!rows.length) { body.innerHTML = '<tr><td colspan="5" class="spinner">Нет кампаний</td></tr>'; return; }
+    body.innerHTML = rows.map(c => {
+      const st = boostStatus(c);
+      const actions = c.status === 'pending'
+        ? `<button class="btn btn-success btn-sm" onclick="approveBoost('${c.id}')">✓ Одобрить</button>
+           <button class="btn btn-secondary btn-sm" onclick="rejectBoost('${c.id}')">⨯ Отклонить</button>`
+        : '';
+      return `<tr>
+        <td><b>${c.headline || ''}</b></td>
+        <td>${(c.body || '').slice(0, 70)}</td>
+        <td>${c.city || ''}</td>
+        <td><span class="badge badge-${st.cls}">${st.label}</span></td>
+        <td>${actions}</td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    body.innerHTML = `<tr><td colspan="5" class="spinner">Ошибка: ${e.message}</td></tr>`;
+  }
+}
+
+window.approveBoost = async (id) => {
+  await setDoc(doc(db, 'pushCampaigns', id), { status: 'approved' }, { merge: true });
+  toast('Кампания одобрена — рассылка запущена', 'success');
+  await loadBoosts();
+};
+window.rejectBoost = async (id) => {
+  await setDoc(doc(db, 'pushCampaigns', id), { status: 'rejected' }, { merge: true });
+  toast('Кампания отклонена', 'success');
+  await loadBoosts();
+};
 
 let hosts = [];
 async function loadHosts() {
@@ -784,8 +853,12 @@ window.openVenueModal = (id) => {
   document.getElementById('vTodaySpecial').value = v?.todaySpecial ?? '';
   document.getElementById('vLatitude').value     = v?.latitude ?? '';
   document.getElementById('vLongitude').value    = v?.longitude ?? '';
-  document.getElementById('vOpenHour').value     = v?.openHour ?? '';
-  document.getElementById('vCloseHour').value    = v?.closeHour ?? '';
+  // Часы по дням: из weekHours, иначе из legacy openHour/closeHour.
+  const oh = v?.openHour ?? 9, ch = v?.closeHour ?? 22;
+  const week = (Array.isArray(v?.weekHours) && v.weekHours.length === 7)
+    ? v.weekHours
+    : WEEKDAYS.map(() => ({ closed:false, open:oh*60, close:ch*60 }));
+  renderWeekHours(week);
   document.getElementById('vPdfMenuURL').value   = v?.pdfMenuURL ?? '';
   document.getElementById('vWhatsapp').value     = v?.whatsapp ?? '';
   document.getElementById('vInstagram').value    = v?.instagram ?? '';
@@ -796,6 +869,92 @@ window.openVenueModal = (id) => {
   currentItems = Array.isArray(v?.items) ? v.items.map(it => ({ ...it })) : [];
   renderVenueItems();
   document.getElementById('venueModal').classList.remove('hidden');
+  setTimeout(initVenueMap, 150);   // карта рисуется после показа модалки
+};
+
+// ── Карта-выбор точки (Leaflet + OpenStreetMap, бесплатно) ────────────────
+let venueMap = null, venueMarker = null;
+function initVenueMap() {
+  if (typeof L === 'undefined') return;   // Leaflet не загрузился
+  const lat = parseFloat(document.getElementById('vLatitude').value) || 42.8746;
+  const lng = parseFloat(document.getElementById('vLongitude').value) || 74.5698;
+  if (!venueMap) {
+    venueMap = L.map('vMap').setView([lat, lng], 14);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(venueMap);
+    venueMarker = L.marker([lat, lng], { draggable: true }).addTo(venueMap);
+    venueMap.on('click', (e) => setVenueMarker(e.latlng.lat, e.latlng.lng));
+    venueMarker.on('dragend', () => {
+      const p = venueMarker.getLatLng();
+      setVenueMarker(p.lat, p.lng);
+    });
+  } else {
+    venueMap.setView([lat, lng], 14);
+    venueMarker.setLatLng([lat, lng]);
+  }
+  venueMap.invalidateSize();
+}
+function setVenueMarker(lat, lng) {
+  venueMarker.setLatLng([lat, lng]);
+  document.getElementById('vLatitude').value  = lat.toFixed(6);
+  document.getElementById('vLongitude').value = lng.toFixed(6);
+}
+
+// ── Часы работы по дням ───────────────────────────────────────────────────
+const WEEKDAYS = ['Понедельник','Вторник','Среда','Четверг','Пятница','Суббота','Воскресенье'];
+function minToHHMM(m) { if (m == null) m = 0; const h = Math.floor(m/60)%24, mm = m%60;
+  return String(h).padStart(2,'0') + ':' + String(mm).padStart(2,'0'); }
+function hhmmToMin(s) { if (!s) return 0; const p = s.split(':'); return (+p[0]||0)*60 + (+p[1]||0); }
+
+function renderWeekHours(week) {
+  document.getElementById('vWeekHours').innerHTML = WEEKDAYS.map((name, i) => {
+    const d = week[i] || { closed:false, open:540, close:1320 };
+    return `<div class="wh-row" data-day="${i}"
+        style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap;">
+      <span style="width:110px;">${name}</span>
+      <label style="display:flex;align-items:center;gap:4px;font-weight:400;">
+        <input type="checkbox" class="wh-closed" ${d.closed?'checked':''} onchange="toggleWhRow(${i})"/> выходной
+      </label>
+      <input type="time" class="wh-open"  value="${minToHHMM(d.open)}"  ${d.closed?'disabled':''}/>
+      <input type="time" class="wh-close" value="${minToHHMM(d.close)}" ${d.closed?'disabled':''}/>
+    </div>`;
+  }).join('');
+}
+window.toggleWhRow = (i) => {
+  const row = document.querySelector(`.wh-row[data-day="${i}"]`);
+  const closed = row.querySelector('.wh-closed').checked;
+  row.querySelector('.wh-open').disabled = closed;
+  row.querySelector('.wh-close').disabled = closed;
+};
+window.applyMondayToAll = () => {
+  const m = collectWeekHours()[0];
+  renderWeekHours(Array.from({length:7}, () => ({ ...m })));
+};
+function collectWeekHours() {
+  return [...document.querySelectorAll('.wh-row')].map(row => ({
+    closed: row.querySelector('.wh-closed').checked,
+    open:   hhmmToMin(row.querySelector('.wh-open').value),
+    close:  hhmmToMin(row.querySelector('.wh-close').value),
+  }));
+}
+
+// Геокодинг адреса → координаты (бесплатно, OpenStreetMap Nominatim).
+window.geocodeAddress = async () => {
+  const addr = document.getElementById('vAddress').value.trim();
+  if (!addr) { toast('Сначала впиши адрес', 'error'); return; }
+  try {
+    const q = encodeURIComponent(addr + ', Бишкек, Кыргызстан');
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${q}`,
+      { headers: { 'Accept-Language': 'ru' } });
+    const data = await res.json();
+    if (!data.length) { toast('Адрес не найден — поставь метку вручную', 'error'); return; }
+    const lat = parseFloat(data[0].lat), lng = parseFloat(data[0].lon);
+    if (venueMap) { venueMap.setView([lat, lng], 16); }
+    setVenueMarker(lat, lng);
+    toast('Координаты найдены', 'success');
+  } catch (e) {
+    toast('Не удалось найти адрес', 'error');
+  }
 };
 
 window.saveVenue = async () => {
@@ -819,8 +978,7 @@ window.saveVenue = async () => {
     todaySpecial: document.getElementById('vTodaySpecial').value.trim(),
     latitude:     num(document.getElementById('vLatitude').value),
     longitude:    num(document.getElementById('vLongitude').value),
-    openHour:     num(document.getElementById('vOpenHour').value),
-    closeHour:    num(document.getElementById('vCloseHour').value),
+    weekHours:    collectWeekHours(),
     pdfMenuURL:   document.getElementById('vPdfMenuURL').value.trim(),
     whatsapp:     document.getElementById('vWhatsapp').value.trim(),
     instagram:    document.getElementById('vInstagram').value.trim(),
@@ -930,6 +1088,7 @@ window.showPage = (page) => {
   document.querySelectorAll('nav button:not(#signOutBtn)').forEach(b => b.classList.remove('active'));
   document.getElementById('page' + page.charAt(0).toUpperCase() + page.slice(1)).classList.add('active');
   document.getElementById('nav'  + page.charAt(0).toUpperCase() + page.slice(1)).classList.add('active');
+  if (page === 'boosts') loadBoosts();
 };
 
 function categoryLabel(c) {

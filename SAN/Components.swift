@@ -1,5 +1,36 @@
 import SwiftUI
 import UIKit
+import CoreImage.CIFilterBuiltins
+
+// MARK: - QR-код купона
+
+struct QRCodeView: View {
+    let text: String
+    var size: CGFloat = 110
+
+    var body: some View {
+        Group {
+            if let img = Self.generate(text) {
+                Image(uiImage: img).interpolation(.none).resizable()
+            } else {
+                Image(systemName: "qrcode").resizable()
+            }
+        }
+        .frame(width: size, height: size)
+        .padding(8)
+        .background(.white, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private static let context = CIContext()
+    static func generate(_ string: String) -> UIImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(string.utf8)
+        filter.correctionLevel = "M"
+        guard let out = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 8, y: 8)),
+              let cg = context.createCGImage(out, from: out.extent) else { return nil }
+        return UIImage(cgImage: cg)
+    }
+}
 
 // MARK: - Аватар заведения
 
@@ -196,6 +227,13 @@ struct DealCard: View {
 
     private var caption: some View {
         VStack(alignment: .leading, spacing: 7) {
+            if let urgency = deal.urgencyText {
+                Label(urgency, systemImage: "flame.fill")
+                    .font(.caption.weight(.bold))
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(.red.opacity(0.12), in: Capsule())
+                    .foregroundStyle(.red)
+            }
             Text(deal.title).font(.title3.weight(.bold)).lineLimit(2)
             Text(deal.details).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
             PriceLabel(deal: deal)

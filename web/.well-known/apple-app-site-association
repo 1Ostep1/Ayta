@@ -2,10 +2,11 @@
   "applinks": {
     "details": [
       {
-        "appIDs": ["TEAMID.kg.san.app"],
+        "appIDs": ["R6W6JK63KU.kg.san.app"],
         "components": [
           { "/": "/venue/*" },
-          { "/": "/deal/*" }
+          { "/": "/deal/*" },
+          { "/": "/ref/*" }
         ]
       }
     ]

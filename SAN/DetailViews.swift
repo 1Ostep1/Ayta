@@ -1,4 +1,5 @@
 import SwiftUI
+import StoreKit
 
 // MARK: - Детали предложения
 
@@ -8,7 +9,10 @@ struct DealDetailView: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    @Environment(\.requestReview) private var requestReview
+    @AppStorage("san.redeemCount") private var redeemCount = 0
     @State private var showMapOptions = false
+    @State private var showRedeemConfirm = false
 
     private var venue: Venue? { store.venue(for: deal) }
 
@@ -32,6 +36,13 @@ struct DealDetailView: View {
                     Text(deal.title).font(.title2.weight(.bold))
                     Text(deal.details).font(.body).foregroundStyle(.secondary)
                     PriceLabel(deal: deal)
+                    if let urgency = deal.urgencyText {
+                        Label(urgency, systemImage: "flame.fill")
+                            .font(.subheadline.weight(.bold))
+                            .padding(.horizontal, 10).padding(.vertical, 5)
+                            .background(.red.opacity(0.12), in: Capsule())
+                            .foregroundStyle(.red)
+                    }
                     Label("Действует до \(deal.validUntil.sanShort)", systemImage: "clock")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
@@ -43,7 +54,10 @@ struct DealDetailView: View {
         }
         .navigationTitle(venue?.name ?? "Предложение")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { store.log(AnalyticsMetric.dealTaps, for: deal.venueID) }
+        .onAppear {
+            store.log(AnalyticsMetric.dealTaps, for: deal.venueID)
+            AnalyticsLog.log(.dealView, ["deal_id": deal.id, "venue_id": deal.venueID])
+        }
         .toolbar {
             if !isPushed {
                 ToolbarItem(placement: .topBarLeading) { Button("Готово") { dismiss() } }
@@ -77,18 +91,67 @@ struct DealDetailView: View {
             }
     }
 
+    @ViewBuilder
     private var showAtVenue: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "qrcode.viewfinder").font(.title).foregroundStyle(Color.sanAccent)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Покажи этот экран сотруднику").font(.subheadline.weight(.semibold))
-                Text("Код: AYTA-\(deal.id.uppercased())").font(.caption).foregroundStyle(.secondary)
+        // Купон есть только у скидок и акций. У новинок и объявлений показывать нечего.
+        if deal.isRedeemable {
+            let used = store.hasRedeemed(deal)
+            VStack(spacing: 12) {
+                HStack(spacing: 14) {
+                    QRCodeView(text: "AYTA-\(deal.id.uppercased())", size: 92)
+                        .opacity(used ? 0.4 : 1)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Покажи этот экран сотруднику").font(.subheadline.weight(.semibold))
+                        Text("Сотрудник отсканирует код и применит предложение перед оплатой.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Text("AYTA-\(deal.id.uppercased())")
+                            .font(.caption2.monospaced()).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                if used {
+                    Label("Купон использован", systemImage: "checkmark.seal.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.green)
+                        .frame(maxWidth: .infinity)
+                } else if store.isGuest {
+                    Text("Войдите в аккаунт, чтобы воспользоваться купоном.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Button {
+                        showRedeemConfirm = true
+                    } label: {
+                        Text("Воспользоваться купоном")
+                            .font(.subheadline.weight(.bold))
+                            .frame(maxWidth: .infinity).padding(.vertical, 11)
+                            .background(Color.sanAccent, in: RoundedRectangle(cornerRadius: 12))
+                            .foregroundStyle(.white)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.sanAccent.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
+            .padding(.horizontal, 16)
+            .alert("Воспользоваться купоном?", isPresented: $showRedeemConfirm) {
+                Button("Да, применить", role: .destructive) {
+                    store.redeem(deal)
+                    redeemCount += 1
+                    // Просим оценить приложение после 1-го и каждого 5-го погашения.
+                    if redeemCount == 1 || redeemCount % 5 == 0 {
+                        Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 900_000_000)
+                            requestReview()
+                        }
+                    }
+                }
+                Button("Отмена", role: .cancel) {}
+            } message: {
+                Text("Подтверждайте только при сотруднике — купон можно использовать один раз.")
             }
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.sanAccent.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
-        .padding(.horizontal, 16)
     }
 
     @ViewBuilder
@@ -187,7 +250,10 @@ struct VenueDetailView: View {
         }
         .navigationTitle(venue.name)
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { store.log(AnalyticsMetric.views, for: venue.id) }
+        .onAppear {
+            store.log(AnalyticsMetric.views, for: venue.id)
+            AnalyticsLog.log(.venueView, ["venue_id": venue.id])
+        }
         .alert("Войдите в аккаунт", isPresented: $showGuestPrompt) {
             Button("Понятно", role: .cancel) {}
         } message: {

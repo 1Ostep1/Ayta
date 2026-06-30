@@ -1,4 +1,5 @@
 import SwiftUI
+import MapKit
 
 /// Поиск по заведениям с фильтрами (по спецификации).
 struct SearchView: View {
@@ -10,9 +11,20 @@ struct SearchView: View {
     @State private var minRating = 0        // 0 | 3 | 4
     @State private var maxDistance: Double? = nil   // км: 0.5 | 1 | 3 | 5
     @State private var category: VenueCategory?
+    @State private var withDeals = false        // только с активными предложениями
+    @State private var showMap = false
+    @State private var mapSelection: Venue?
+
+    private var anyFilterOn: Bool {
+        openNow || withDeals || minRating > 0 || maxDistance != nil || category != nil
+    }
+    private func resetFilters() {
+        openNow = false; withDeals = false; minRating = 0; maxDistance = nil; category = nil
+    }
 
     private var results: [Venue] {
-        store.venuesInSelectedCity().filter { venue in
+        // База уже отсортирована по релевантности (алгоритм ранжирования).
+        store.rankedVenues().filter { venue in
             matchesQuery(venue) && matchesFilters(venue)
         }
     }
@@ -21,7 +33,16 @@ struct SearchView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 filterBar
-                if results.isEmpty {
+                if !showMap && (anyFilterOn || !query.isEmpty) {
+                    HStack {
+                        Text("Найдено: \(results.count)").font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 6)
+                }
+                if showMap {
+                    VenuesMapView(venues: results) { mapSelection = $0 }
+                } else if results.isEmpty {
                     ScrollView {
                         ContentUnavailableView("Ничего не нашлось", systemImage: "magnifyingglass",
                             description: Text("Попробуй другое название или расширь расстояние."))
@@ -46,7 +67,18 @@ struct SearchView: View {
                 }
             }
             .navigationTitle("Поиск")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showMap.toggle() } label: {
+                        Image(systemName: showMap ? "list.bullet" : "map")
+                    }
+                }
+            }
+            .navigationDestination(item: $mapSelection) { VenueDetailView(venue: $0) }
             .searchable(text: $query, prompt: "Заведение, категория или акция")
+            .onSubmit(of: .search) {
+                AnalyticsLog.log(.search, ["query": query, "results": results.count])
+            }
             .navigationDestination(for: Venue.self) { VenueDetailView(venue: $0) }
         }
     }
@@ -56,7 +88,16 @@ struct SearchView: View {
     private var filterBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
+                if anyFilterOn {
+                    Button { withAnimation { resetFilters() } } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.body).foregroundStyle(.secondary)
+                            .padding(.horizontal, 4)
+                    }
+                    .buttonStyle(.plain)
+                }
                 chip("Открыто", systemImage: "clock", isOn: openNow) { openNow.toggle() }
+                chip("Со скидкой", systemImage: "tag.fill", isOn: withDeals) { withDeals.toggle() }
 
                 Menu {
                     Button("Любой рейтинг") { minRating = 0 }
@@ -112,16 +153,29 @@ struct SearchView: View {
 
     private func matchesQuery(_ venue: Venue) -> Bool {
         guard !query.isEmpty else { return true }
-        if venue.name.localizedCaseInsensitiveContains(query) { return true }
-        if venue.category.rawValue.localizedCaseInsensitiveContains(query) { return true }
-        if venue.district.localizedCaseInsensitiveContains(query) { return true }
-        return store.deals(for: venue).contains {
-            $0.title.localizedCaseInsensitiveContains(query)
-        }
+        let q = query.trimmingCharacters(in: .whitespaces)
+        // Заведение
+        if venue.name.localizedCaseInsensitiveContains(q) { return true }
+        if venue.category.rawValue.localizedCaseInsensitiveContains(q) { return true }
+        if venue.district.localizedCaseInsensitiveContains(q) { return true }
+        if venue.address.localizedCaseInsensitiveContains(q) { return true }
+        // Объекты внутри заведения (блюда / услуги)
+        if venue.items.contains(where: { $0.name.localizedCaseInsensitiveContains(q) }) { return true }
+        // Предложения (название + описание)
+        if store.deals(for: venue).contains(where: {
+            $0.title.localizedCaseInsensitiveContains(q) || $0.details.localizedCaseInsensitiveContains(q)
+        }) { return true }
+        // Отзывы (текст + упомянутый объект)
+        if store.reviews(for: venue).contains(where: {
+            $0.text.localizedCaseInsensitiveContains(q) ||
+            ($0.itemName?.localizedCaseInsensitiveContains(q) ?? false)
+        }) { return true }
+        return false
     }
 
     private func matchesFilters(_ venue: Venue) -> Bool {
         if openNow && !venue.isOpenNow { return false }
+        if withDeals && store.deals(for: venue).isEmpty { return false }
         if let category, venue.category != category { return false }
         if minRating > 0 && store.aggregate(for: venue).rating < Double(minRating) { return false }
         if let maxDistance {
@@ -129,6 +183,37 @@ struct SearchView: View {
                   d <= maxDistance else { return false }
         }
         return true
+    }
+}
+
+// MARK: - Карта заведений
+
+struct VenuesMapView: View {
+    let venues: [Venue]
+    var onSelect: (Venue) -> Void
+
+    @State private var position: MapCameraPosition = .region(
+        MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: City.bishkek.latitude,
+                                           longitude: City.bishkek.longitude),
+            span: MKCoordinateSpan(latitudeDelta: 0.06, longitudeDelta: 0.06)))
+
+    var body: some View {
+        Map(position: $position) {
+            ForEach(venues) { v in
+                Annotation(v.name,
+                           coordinate: CLLocationCoordinate2D(latitude: v.latitude,
+                                                              longitude: v.longitude)) {
+                    Button { onSelect(v) } label: {
+                        Image(systemName: "mappin.circle.fill")
+                            .font(.title)
+                            .foregroundStyle(Color.sanAccent)
+                            .background(Circle().fill(.white).padding(4))
+                    }
+                }
+            }
+        }
+        .mapControls { MapUserLocationButton() }
     }
 }
 

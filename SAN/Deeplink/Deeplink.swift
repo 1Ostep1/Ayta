@@ -27,8 +27,9 @@ final class DeepLinkRouter: ObservableObject {
 
     private init() {}
 
-    /// Домен для Universal Links (замени на свой; нужен размещённый AASA-файл).
-    static let domain = "san.kg"
+    /// Домен для Universal Links — бесплатный домен Firebase Hosting
+    /// (AASA размещён в web/.well-known/apple-app-site-association).
+    static let domain = "san-25d32.web.app"
 
     /// Парсит san://venue/<id> (кастомная схема) и https://<domain>/venue/<id> (Universal Link).
     func handle(url: URL) {
@@ -37,6 +38,7 @@ final class DeepLinkRouter: ObservableObject {
             switch url.host {
             case "venue": route = .venue(id)
             case "deal": route = .deal(id)
+            case "ref": Self.setPendingReferrer(id)
             default: break
             }
         } else if url.scheme == "https" {
@@ -45,6 +47,7 @@ final class DeepLinkRouter: ObservableObject {
             switch comps[0] {
             case "venue": route = .venue(comps[1])
             case "deal": route = .deal(comps[1])
+            case "ref": Self.setPendingReferrer(comps[1])
             default: break
             }
         }
@@ -56,6 +59,20 @@ final class DeepLinkRouter: ObservableObject {
     // Ссылки для шаринга — Universal Links (открываются в приложении при установленном app).
     static func venueURL(_ id: String) -> URL { URL(string: "https://\(domain)/venue/\(id)")! }
     static func dealURL(_ id: String) -> URL { URL(string: "https://\(domain)/deal/\(id)")! }
+    static func referralURL(_ code: String) -> URL { URL(string: "https://\(domain)/ref/\(code)")! }
+
+    // MARK: Рефералка
+    static let pendingReferrerKey = "san.referrer.pending"
+
+    /// Запоминаем, кто пригласил (если ещё не записано). Привязка и бонус — после входа.
+    static func setPendingReferrer(_ code: String) {
+        guard !code.isEmpty else { return }
+        let d = UserDefaults.standard
+        if (d.string(forKey: pendingReferrerKey) ?? "").isEmpty {
+            d.set(code, forKey: pendingReferrerKey)
+            AnalyticsLog.log(.referralJoin, ["referrer_id": code])
+        }
+    }
 }
 
 // MARK: - AppDelegate: обработка тапа по push-уведомлению

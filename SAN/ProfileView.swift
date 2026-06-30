@@ -6,6 +6,7 @@ struct ProfileView: View {
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var themeStore: ThemeStore
     @EnvironmentObject private var host: HostStore
+    @EnvironmentObject private var coupons: CouponStore
     @AppStorage("san.hostMode") private var hostMode = false
 
     @AppStorage("san.language") private var language = "ru"
@@ -20,7 +21,9 @@ struct ProfileView: View {
         NavigationStack {
             List {
                 profileHeader
+                couponsSection
                 myReviewsSection
+                referralSection
                 settingsSection
                 hostModeSection
                 aboutSection
@@ -153,6 +156,50 @@ struct ProfileView: View {
         }
     }
 
+    // MARK: Купоны
+
+    private var couponsSection: some View {
+        Section {
+            NavigationLink { MyCouponsView() } label: {
+                HStack {
+                    Label("Мои купоны", systemImage: "ticket.fill")
+                    Spacer()
+                    if coupons.activeCount > 0 {
+                        Text("\(coupons.activeCount)")
+                            .font(.caption.weight(.bold)).foregroundStyle(.white)
+                            .padding(.horizontal, 8).padding(.vertical, 2)
+                            .background(Color.sanAccent, in: Capsule())
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: Пригласить друга (рефералка)
+
+    @ViewBuilder
+    private var referralSection: some View {
+        Section("Пригласить друга") {
+            if session.isGuest {
+                Text("Войдите в аккаунт, чтобы приглашать друзей и получать бонусы.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                ShareLink(
+                    item: DeepLinkRouter.referralURL(store.referralCode),
+                    subject: Text("Ayta"),
+                    message: Text("Лови скидки и акции города в Ayta. Заходи по моей ссылке — бонусы получим оба!")
+                ) {
+                    Label("Поделиться приглашением", systemImage: "person.2.fill")
+                }
+                .simultaneousGesture(TapGesture().onEnded {
+                    AnalyticsLog.log(.referralInvite, ["user_id": store.referralCode])
+                })
+                Text("Друг получит приветственные бонусы, а ты — за каждого, кто присоединится.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
     // MARK: О приложении
 
     private var aboutSection: some View {
@@ -203,5 +250,6 @@ private enum ProfileSheet: Identifiable {
         .environmentObject(SessionStore())
         .environmentObject(ThemeStore())
         .environmentObject(HostStore())
+        .environmentObject(CouponStore())
         .tint(.sanAccent)
 }

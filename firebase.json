@@ -9,6 +9,15 @@
   "hosting": {
     "public": "web",
     "appAssociation": "NONE",
-    "ignore": ["firebase.json", "**/node_modules/**"]
+    "ignore": ["firebase.json", "**/node_modules/**"],
+    "headers": [
+      {
+        "source": "/.well-known/apple-app-site-association",
+        "headers": [{ "key": "Content-Type", "value": "application/json" }]
+      }
+    ],
+    "rewrites": [
+      { "source": "**", "destination": "/index.html" }
+    ]
   }
 }

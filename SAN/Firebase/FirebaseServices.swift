@@ -138,6 +138,40 @@ final class FirebaseDataRepository: DataRepository {
         try await db.collection("reviews").document(id).delete()
     }
 
+    // Погашение купона: детерминированный id ⇒ повторно не дублируется.
+    func logRedemption(userID: String, dealID: String, venueID: String) async throws {
+        try await db.collection("redemptions").document("\(userID)_\(dealID)").setData([
+            "userID": userID, "dealID": dealID, "venueID": venueID,
+            "createdAt": Timestamp(date: .now), "status": "new"
+        ], merge: true)
+    }
+
+    // Реферал: один документ на приглашённого.
+    func recordReferral(inviteeID: String, referrerID: String) async throws {
+        try await db.collection("referrals").document(inviteeID).setData([
+            "inviteeID": inviteeID, "referrerID": referrerID,
+            "createdAt": Timestamp(date: .now)
+        ], merge: true)
+    }
+
+    // Забирает неполученные серверные бонусы и помечает claimed.
+    func claimBonusGrants(userID: String) async throws -> Int {
+        // Один фильтр по userID (без составного индекса); claimed фильтруем в коде.
+        let snap = try await db.collection("bonusGrants")
+            .whereField("userID", isEqualTo: userID)
+            .getDocuments()
+        let unclaimed = snap.documents.filter { ($0.data()["claimed"] as? Bool) != true }
+        guard !unclaimed.isEmpty else { return 0 }
+        var total = 0
+        let batch = db.batch()
+        for doc in unclaimed {
+            total += (doc.data()["amount"] as? NSNumber)?.intValue ?? 0
+            batch.setData(["claimed": true], forDocument: doc.reference, merge: true)
+        }
+        try await batch.commit()
+        return total
+    }
+
     func updateReviewReply(reviewID: String, reply: HostReply?) async throws {
         let doc = db.collection("reviews").document(reviewID)
         if let reply {
@@ -372,6 +406,7 @@ extension Review {
         if let itemID { d["itemID"] = itemID }
         if let itemName { d["itemName"] = itemName }
         if !photos.isEmpty { d["photos"] = photos }
+        if verifiedVisit { d["verifiedVisit"] = true }
         if let hostReply {
             d["hostReply"] = [
                 "text": hostReply.text,
@@ -406,7 +441,8 @@ extension Review {
             hostReply: reply,
             itemID: d["itemID"] as? String,
             itemName: d["itemName"] as? String,
-            photos: d["photos"] as? [String] ?? []
+            photos: d["photos"] as? [String] ?? [],
+            verifiedVisit: d["verifiedVisit"] as? Bool ?? false
         )
     }
 }
@@ -607,11 +643,12 @@ final class FirebaseHostRepository: HostRepository {
             "city": city,
             "venueID": venueID,
             "ownerID": ownerID,
-            "status": "queued",
+            "status": "pending",   // ждёт одобрения админом в панели
+            "delivered": false,
             "createdAt": Timestamp(date: .now)
         ]
         if let category { data["category"] = category }
-        // Создание документа триггерит Cloud Function, которая шлёт FCM на топик.
+        // Админ одобряет в панели (status → approved) → Cloud Function рассылает.
         _ = try await db.collection("pushCampaigns").addDocument(data: data)
     }
 }

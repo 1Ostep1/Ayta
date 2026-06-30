@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import FirebaseCore
+import FirebaseMessaging
 #if canImport(GoogleSignIn)
 import GoogleSignIn
 #endif
@@ -11,6 +12,9 @@ struct SANApp: App {
     @StateObject private var router = DeepLinkRouter.shared
 
     init() {
+        // Кэш изображений в памяти и на диске — лента не перезагружает фото при скролле.
+        URLCache.shared = URLCache(memoryCapacity: 64 * 1024 * 1024,
+                                   diskCapacity: 256 * 1024 * 1024)
         if AppConfig.useFirebase {
             FirebaseApp.configure()
         }
@@ -19,6 +23,7 @@ struct SANApp: App {
     @StateObject private var store = AppStore()
     @StateObject private var session = SessionStore()
     @StateObject private var bonus = BonusEngine()
+    @StateObject private var coupons = CouponStore()
     @StateObject private var themeStore = ThemeStore()
     @StateObject private var location = LocationManager()
     @StateObject private var hostStore = HostStore()
@@ -37,6 +42,7 @@ struct SANApp: App {
             .environmentObject(store)
             .environmentObject(session)
             .environmentObject(bonus)
+            .environmentObject(coupons)
             .environmentObject(themeStore)
             .environmentObject(location)
             .environmentObject(hostStore)
@@ -53,6 +59,13 @@ struct SANApp: App {
             }
             .sheet(item: $router.route) { route in
                 DeepLinkDestination(route: route)
+                    .environmentObject(store)
+                    .environmentObject(session)
+                    .environmentObject(location)
+                    .environmentObject(bonus)
+                    .environmentObject(themeStore)
+                    .environmentObject(hostStore)
+                    .tint(.sanAccent)
             }
             // Любой тап продлевает «активность» для бонус-движка.
             // Через ActivityTracker (UIKit, cancelsTouchesInView=false), чтобы НЕ
@@ -72,6 +85,9 @@ struct SANApp: App {
             .onChange(of: session.isSignedIn) { _, signedIn in
                 store.setCurrentUser(id: session.user?.id, name: session.user?.name, isGuest: session.isGuest)
                 if signedIn {
+                    store.grantPendingReferral(bonus: bonus)
+                    store.claimReferralBonuses(bonus: bonus)
+                    registerPushToken()      // токен пишем уже под авторизацией
                     bonus.start()
                     hostStore.configure(ownerID: session.user?.id)
                     Task { await hostStore.sync() }
@@ -83,10 +99,13 @@ struct SANApp: App {
                 NotificationManager.refresh(reachedGoalToday: reached)
             }
             .task {
+                AnalyticsLog.log(.appOpen)
                 hostStore.bind(store)
                 hostStore.configure(ownerID: session.user?.id)
                 await store.load()
                 store.setCurrentUser(id: session.user?.id, name: session.user?.name, isGuest: session.isGuest)
+                store.grantPendingReferral(bonus: bonus)
+                store.claimReferralBonuses(bonus: bonus)
                 await hostStore.sync()
                 if session.isSignedIn { bonus.start() }
                 // Регистрация для remote-уведомлений → APNs-токен уходит в FCM
@@ -95,7 +114,17 @@ struct SANApp: App {
                 // Подписка на топики FCM — чтобы получать рекламные push-кампании.
                 pushService.subscribe(topic: "all_users")
                 pushService.subscribe(topic: "city_\(store.selectedCitySlug)")
+                if session.isSignedIn { registerPushToken() }
             }
+        }
+    }
+
+    /// Берёт текущий FCM-токен и пишет его в userTokens уже под авторизацией
+    /// (правило userTokens требует request.auth != null).
+    private func registerPushToken() {
+        Messaging.messaging().token { token, _ in
+            guard let token else { return }
+            pushService.registerToken(token, city: store.selectedCitySlug, uid: session.user?.id)
         }
     }
 }

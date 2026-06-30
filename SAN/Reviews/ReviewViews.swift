@@ -199,13 +199,27 @@ struct ReviewRow: View {
                 }
                 .frame(width: 38, height: 38)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(review.authorName).font(.subheadline.weight(.semibold))
+                    HStack(spacing: 5) {
+                        Text(review.authorName).font(.subheadline.weight(.semibold))
+                        if review.verifiedVisit {
+                            Label("Проверенный визит", systemImage: "checkmark.seal.fill")
+                                .labelStyle(.iconOnly)
+                                .font(.caption).foregroundStyle(.green)
+                        }
+                    }
                     HStack(spacing: 6) {
                         StarRatingView(rating: Double(review.rating), size: 11)
                         Text("· \(review.dateText)").font(.caption2).foregroundStyle(.secondary)
                     }
                 }
                 Spacer()
+                if review.verifiedVisit {
+                    Text("Был здесь")
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(.green.opacity(0.15), in: Capsule())
+                        .foregroundStyle(.green)
+                }
             }
             if let itemName = review.itemName, !itemName.isEmpty {
                 Text("Отзыв об объекте: \(itemName)")

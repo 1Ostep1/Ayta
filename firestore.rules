@@ -27,11 +27,12 @@ service cloud.firestore {
       allow write: if request.auth != null;
     }
 
-    // Очередь push-кампаний: хост создаёт документ, Cloud Function рассылает FCM.
-    // Клиенту читать не нужно; обновляет статус только бэкенд (admin SDK обходит правила).
+    // Push-кампании: хост создаёт ("pending"); админ-панель читает и одобряет
+    // (status → approved/rejected). Рассылку делает Cloud Function по одобрению.
     match /pushCampaigns/{id} {
       allow create: if request.auth != null;
-      allow read, update, delete: if false;
+      allow read, update: if request.auth != null;
+      allow delete: if false;
     }
 
     // Аналитика: любой аутентифицированный логирует события; читает владелец/админ.
@@ -50,6 +51,29 @@ service cloud.firestore {
     match /userTokens/{token} {
       allow write: if request.auth != null;
       allow read: if false;
+    }
+
+    // Погашения купонов: пользователь создаёт документ (id = uid_dealID).
+    // Счётчик и пометку "counted" делает Cloud Function (admin SDK обходит правила).
+    match /redemptions/{id} {
+      allow create: if request.auth != null;
+      allow read, update, delete: if false;
+    }
+
+    // Рефералы: приглашённый создаёт документ referrals/{его uid}.
+    // Награду пригласившему начисляет Cloud Function.
+    match /referrals/{inviteeID} {
+      allow create: if request.auth != null && request.auth.uid == inviteeID;
+      allow read, update, delete: if false;
+    }
+
+    // Начисленные сервером бонусы: пользователь читает свои и помечает claimed.
+    // Создаёт только Cloud Function (admin SDK).
+    match /bonusGrants/{id} {
+      allow read: if request.auth != null && resource.data.userID == request.auth.uid;
+      allow update: if request.auth != null && resource.data.userID == request.auth.uid
+                    && request.resource.data.userID == resource.data.userID;
+      allow create, delete: if false;
     }
   }
 }

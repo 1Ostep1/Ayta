@@ -10,9 +10,9 @@
  *   firebase deploy --only functions
  */
 
-const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+const { onDocumentCreated, onDocumentWritten } = require("firebase-functions/v2/firestore");
 const { initializeApp } = require("firebase-admin/app");
-const { getFirestore } = require("firebase-admin/firestore");
+const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const { getMessaging } = require("firebase-admin/messaging");
 
 initializeApp();
@@ -22,12 +22,21 @@ const DAY_MS = 86400000;
 const DAILY_CAP = 1;
 const WEEKLY_CAP = 3;
 
-exports.sendPushCampaign = onDocumentCreated("pushCampaigns/{id}", async (event) => {
-  const snap = event.data;
-  if (!snap) return;
+// Награды за рефералку (бонусы).
+const REFERRAL_REWARD = 100;
+
+function dayKey(d = new Date()) {
+  return d.toISOString().slice(0, 10); // yyyy-MM-dd (UTC) — как в приложении
+}
+
+// Рассылка идёт только после одобрения админом (status: "approved") и один раз
+// (флаг delivered). Хост создаёт кампанию как "pending" → админ одобряет в панели.
+exports.sendPushCampaign = onDocumentWritten("pushCampaigns/{id}", async (event) => {
+  const snap = event.data && event.data.after;
+  if (!snap || !snap.exists) return;
 
   const c = snap.data() || {};
-  if (c.status && c.status !== "queued") return;
+  if (c.status !== "approved" || c.delivered) return;
 
   const now = Date.now();
   const city = c.city || "";
@@ -54,8 +63,22 @@ exports.sendPushCampaign = onDocumentCreated("pushCampaigns/{id}", async (event)
   }
 
   if (eligible.length === 0) {
-    await snap.ref.update({ status: "sent", recipients: 0, sentAt: new Date(),
-      note: "no eligible tokens (frequency cap or no subscribers)" });
+    // Фолбэк: рассылка по топику города. Устройства подписываются на city_<город>
+    // при запуске (без авторизации), поэтому буст доходит даже без userTokens.
+    const topic = city ? `city_${city}` : "all_users";
+    try {
+      await getMessaging().send({
+        topic,
+        notification: { title: c.headline || "САН", body: c.body || "" },
+        data: { type: "ad", venueID: String(c.venueID || ""), campaignId: event.params.id },
+        apns: { payload: { aps: { sound: "default", badge: 1 } } },
+        android: { notification: { sound: "default" }, priority: "high" },
+      });
+      await snap.ref.update({ status: "sent", recipients: 0, delivery: "topic",
+        delivered: true, sentAt: new Date(), note: `sent to topic ${topic}` });
+    } catch (e) {
+      await snap.ref.update({ status: "error", delivered: true, note: String(e) });
+    }
     return;
   }
 
@@ -87,6 +110,85 @@ exports.sendPushCampaign = onDocumentCreated("pushCampaigns/{id}", async (event)
     await batch.commit();
   }
 
-  await snap.ref.update({ status: "sent", recipients: success, sentAt: new Date() });
+  await snap.ref.update({ status: "sent", recipients: success, delivered: true, sentAt: new Date() });
   console.log(`✅ push sent to ${success}/${eligible.length} eligible tokens (city=${city || "all"})`);
+});
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * 2) Новое предложение → push подписчикам заведения (topic venue_<id>).
+ *    Приложение подписывает устройство на topic при сохранении заведения.
+ * ─────────────────────────────────────────────────────────────────────────── */
+exports.notifyOnNewDeal = onDocumentCreated("deals/{id}", async (event) => {
+  const snap = event.data;
+  if (!snap) return;
+  const deal = snap.data() || {};
+  if ((deal.status || "active") !== "active") return;       // только активные
+  const venueID = String(deal.venueID || "");
+  if (!venueID) return;
+
+  // Имя заведения для текста уведомления.
+  let venueName = "заведение";
+  try {
+    const vdoc = await db.collection("venues").doc(venueID).get();
+    if (vdoc.exists && vdoc.data().name) venueName = vdoc.data().name;
+  } catch (_) {}
+
+  const typeLabel = { discount: "Скидка", promo: "Акция", novelty: "Новинка", announcement: "Объявление" }[deal.type] || "Новинка";
+
+  await getMessaging().send({
+    topic: `venue_${venueID}`,
+    notification: { title: `${typeLabel} · ${venueName}`, body: deal.title || "Новое предложение" },
+    data: { type: "deal", dealID: event.params.id, venueID },
+    apns: { payload: { aps: { sound: "default", badge: 1 } } },
+    android: { notification: { sound: "default" }, priority: "high" },
+  });
+  console.log(`🔔 new-deal push → venue_${venueID} (${venueName})`);
+});
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * 3) Погашение купона → серверный авторитетный счётчик (analytics) + анти-абуз.
+ *    Приложение пишет redemptions/{userID}_{dealID} (детерминированный id ⇒
+ *    повторное погашение не создаёт новый документ). Здесь увеличиваем счётчик.
+ * ─────────────────────────────────────────────────────────────────────────── */
+exports.countRedemption = onDocumentCreated("redemptions/{id}", async (event) => {
+  const snap = event.data;
+  if (!snap) return;
+  const r = snap.data() || {};
+  const venueID = String(r.venueID || "");
+  if (!venueID) return;
+
+  const day = dayKey();
+  await db.collection("analytics").doc(venueID)
+    .collection("days").doc(day)
+    .set({ redemptions: FieldValue.increment(1), date: day }, { merge: true });
+
+  await snap.ref.set({ status: "counted", countedAt: new Date() }, { merge: true });
+  console.log(`🎟️ redemption counted: venue=${venueID} deal=${r.dealID}`);
+});
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * 4) Реферал → награда пригласившему. Приложение пишет referrals/{inviteeID}
+ *    = { referrerID }. Здесь начисляем бонус пригласившему через bonusGrants,
+ *    которые приложение «забирает» при следующем запуске.
+ *    (Приглашённый получает приветственный бонус на своём устройстве сразу.)
+ * ─────────────────────────────────────────────────────────────────────────── */
+exports.rewardReferral = onDocumentCreated("referrals/{inviteeID}", async (event) => {
+  const snap = event.data;
+  if (!snap) return;
+  const data = snap.data() || {};
+  const referrerID = String(data.referrerID || "");
+  const inviteeID = event.params.inviteeID;
+  if (!referrerID || referrerID === inviteeID) return;
+  if (data.rewarded) return;                                 // идемпотентность
+
+  await db.collection("bonusGrants").add({
+    userID: referrerID,
+    amount: REFERRAL_REWARD,
+    reason: "referral",
+    inviteeID,
+    claimed: false,
+    createdAt: new Date(),
+  });
+  await snap.ref.set({ rewarded: true, rewardedAt: new Date() }, { merge: true });
+  console.log(`🎁 referral reward queued for ${referrerID} (invited ${inviteeID})`);
 });

@@ -12,6 +12,12 @@ protocol DataRepository {
     func deleteReview(id: String) async throws
     /// Ответ владельца — обновляет поле hostReply в документе отзыва.
     func updateReviewReply(reviewID: String, reply: HostReply?) async throws
+    /// Погашение купона (серверный счётчик + анти-абуз). Детерминированный id.
+    func logRedemption(userID: String, dealID: String, venueID: String) async throws
+    /// Запись реферала: пригласивший → приглашённый.
+    func recordReferral(inviteeID: String, referrerID: String) async throws
+    /// Забирает начисленные сервером бонусы (рефералка) и помечает claimed. Возвращает сумму.
+    func claimBonusGrants(userID: String) async throws -> Int
 }
 
 /// Запись/чтение контента хоста в Firestore (заведения и предложения с владельцем).
@@ -45,7 +51,8 @@ enum AnalyticsMetric {
     static let calls = "calls"
     static let maps = "maps"
     static let dealTaps = "dealTaps"
-    static let all = [views, saves, calls, maps, dealTaps]
+    static let redemptions = "redemptions"   // купоны, погашенные в заведении
+    static let all = [views, saves, calls, maps, dealTaps, redemptions]
 }
 
 /// Push-уведомления (новые акции рядом / у избранных мест).
@@ -67,6 +74,9 @@ final class MockDataRepository: DataRepository {
     func saveReview(_ review: Review) async throws {}
     func deleteReview(id: String) async throws {}
     func updateReviewReply(reviewID: String, reply: HostReply?) async throws {}
+    func logRedemption(userID: String, dealID: String, venueID: String) async throws {}
+    func recordReferral(inviteeID: String, referrerID: String) async throws {}
+    func claimBonusGrants(userID: String) async throws -> Int { 0 }
 }
 
 final class MockPushService: PushService {

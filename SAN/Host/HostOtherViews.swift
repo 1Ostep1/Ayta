@@ -137,6 +137,7 @@ struct HostAnalyticsView: View {
     private var aggregateGrid: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 2), spacing: 12) {
             statCard("Просмотры профиля", total(AnalyticsMetric.views), "eye.fill")
+            statCard("Погашено купонов", total(AnalyticsMetric.redemptions), "checkmark.seal.fill")
             statCard("Клики по предложениям", total(AnalyticsMetric.dealTaps), "hand.tap.fill")
             statCard("Сохранения", total(AnalyticsMetric.saves), "bookmark.fill")
             statCard("Звонки", total(AnalyticsMetric.calls), "phone.fill")

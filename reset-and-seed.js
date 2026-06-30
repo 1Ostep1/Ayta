@@ -15,10 +15,39 @@
 
 const { initializeApp, cert } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
+const readline = require("readline");
+const fs = require("fs");
 const serviceAccount = require("./serviceAccountKey.json");
 
 initializeApp({ credential: cert(serviceAccount) });
 const db = getFirestore();
+
+// ── Защита от случайного стирания ───────────────────────────────────────────
+
+// Бэкап коллекций в JSON перед удалением (чтобы можно было восстановить).
+async function backupBeforeWipe() {
+  const out = {};
+  for (const c of ["venues", "deals", "reviews", "hosts"]) {
+    const snap = await db.collection(c).get();
+    out[c] = snap.docs.map((d) => ({ id: d.id, data: d.data() }));
+  }
+  const ts = new Date().toISOString().replace(/[:.]/g, "-");
+  const file = `backup-before-reset-${ts}.json`;
+  fs.writeFileSync(file, JSON.stringify(out, null, 2));
+  console.log(`📦 Бэкап сохранён: ${file} (восстановление: node restore-firestore.js ${file})`);
+}
+
+// Требуем подтверждение: либо флаг --yes, либо ввести DELETE вручную.
+function confirmWipe() {
+  if (process.argv.includes("--yes")) return Promise.resolve(true);
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question('⚠️  Это УДАЛИТ venues/deals/reviews/hosts. Введи "DELETE" для продолжения: ', (a) => {
+      rl.close();
+      resolve(a.trim() === "DELETE");
+    });
+  });
+}
 
 // ── Данные ───────────────────────────────────────────────────────────────────
 
@@ -98,7 +127,15 @@ async function deleteCollection(name, batchSize = 300) {
 // ── Запуск ───────────────────────────────────────────────────────────────────
 
 async function run() {
-  console.log("⚠️  Очистка коллекций venues, deals, reviews, hosts...\n");
+  // 1) Бэкап текущих данных — на случай ошибки.
+  console.log("📦 Делаю бэкап текущих данных перед очисткой...");
+  await backupBeforeWipe();
+
+  // 2) Подтверждение (или флаг --yes).
+  const ok = await confirmWipe();
+  if (!ok) { console.log("❌ Отменено. Ничего не удалено."); process.exit(0); }
+
+  console.log("\n⚠️  Очистка коллекций venues, deals, reviews, hosts...\n");
   for (const c of ["deals", "reviews", "hosts", "venues"]) {
     await deleteCollection(c);
   }

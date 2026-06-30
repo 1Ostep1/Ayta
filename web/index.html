@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ayta — скидки, акции и новинки твоего города</title>
+  <style>
+    :root { --accent: #FF4D29; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0e0e10; color: #fff; min-height: 100vh;
+      display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px;
+    }
+    .card { max-width: 420px; }
+    .logo { font-size: 44px; font-weight: 800; color: var(--accent); letter-spacing: -1px; }
+    p { color: #b8b8be; margin: 14px 0 28px; line-height: 1.5; font-size: 17px; }
+    .btn {
+      display: inline-block; background: var(--accent); color: #fff; text-decoration: none;
+      padding: 14px 28px; border-radius: 14px; font-weight: 700; font-size: 17px;
+    }
+    .hint { margin-top: 18px; font-size: 14px; color: #6e6e76; }
+    .san { margin-top: 36px; font-size: 14px; color: #8a8a92; }
+    .san b { color: #fff; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">Ayta</div>
+    <p>Скидки, акции и новинки заведений твоего города — в одной ленте.</p>
+    <a class="btn" id="store" href="#">Открыть в приложении</a>
+    <div class="hint">Нет приложения? Скоро в App Store.</div>
+    <div class="san">Система <b>САН</b>: Скидки · Акции · Новинки</div>
+  </div>
+  <script>
+    // Если открыто на iPhone — пробуем открыть приложение по кастомной схеме,
+    // используя путь ссылки (например /venue/kulikov → san://venue/kulikov).
+    (function () {
+      var parts = location.pathname.split("/").filter(Boolean);
+      if (parts.length >= 2) {
+        var scheme = "san://" + parts[0] + "/" + parts[1];
+        document.getElementById("store").href = scheme;
+        // Мягкая попытка авто-открытия.
+        setTimeout(function () { location.href = scheme; }, 300);
+      } else {
+        // TODO: заменить на ссылку App Store, когда приложение будет опубликовано.
+        document.getElementById("store").href = "https://apps.apple.com/";
+      }
+    })();
+  </script>
+</body>
+</html>

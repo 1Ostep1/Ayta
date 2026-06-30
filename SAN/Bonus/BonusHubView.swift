@@ -3,6 +3,7 @@ import SwiftUI
 /// Вкладка «Бонусы»: кошелёк, прогресс активного времени, игры, обмен на скидки.
 struct BonusHubView: View {
     @EnvironmentObject private var bonus: BonusEngine
+    @EnvironmentObject private var coupons: CouponStore
 
     var body: some View {
         NavigationStack {
@@ -125,29 +126,58 @@ struct BonusHubView: View {
 
     private var rewardsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Потратить бонусы").font(.headline)
-            rewardRow(title: "−10% к любой акции", cost: 100)
-            rewardRow(title: "Бесплатный кофе у партнёра", cost: 300)
-            rewardRow(title: "VIP-доступ к новинкам", cost: 500)
+            HStack {
+                Text("Потратить бонусы").font(.headline)
+                Spacer()
+                NavigationLink {
+                    MyCouponsView()
+                } label: {
+                    Label("Мои купоны\(coupons.activeCount > 0 ? " (\(coupons.activeCount))" : "")",
+                          systemImage: "ticket.fill")
+                        .font(.subheadline.weight(.semibold))
+                }
+            }
+            ForEach(CouponStore.catalog) { reward in
+                rewardRow(reward)
+            }
+        }
+        .alert("Купон получен 🎉", isPresented: Binding(
+            get: { justClaimed != nil }, set: { if !$0 { justClaimed = nil } })) {
+            Button("Отлично") {}
+        } message: {
+            Text("Найди его в «Мои купоны» и покажи сотруднику заведения.")
+        }
+        // Подтверждение перед обменом бонусов.
+        .alert("Обменять бонусы?", isPresented: Binding(
+            get: { pendingReward != nil }, set: { if !$0 { pendingReward = nil } }),
+            presenting: pendingReward) { reward in
+            Button("Обменять за \(reward.cost)", role: .destructive) {
+                if let c = coupons.redeem(reward, bonus: bonus) { justClaimed = c }
+            }
+            Button("Отмена", role: .cancel) {}
+        } message: { reward in
+            Text("«\(reward.title)» за \(reward.cost) бонусов. Купон нельзя вернуть после обмена.")
         }
     }
 
-    @State private var redeemed: String?
+    @State private var justClaimed: Coupon?
+    @State private var pendingReward: Reward?
 
-    private func rewardRow(title: String, cost: Int) -> some View {
-        HStack {
+    private func rewardRow(_ reward: Reward) -> some View {
+        HStack(spacing: 12) {
+            Text(reward.emoji).font(.title2)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.subheadline.weight(.medium))
-                Text("\(cost) бонусов").font(.caption).foregroundStyle(.secondary)
+                Text(reward.title).font(.subheadline.weight(.medium))
+                Text("\(reward.cost) бонусов").font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            Button(redeemed == title ? "Готово" : "Обменять") {
-                if bonus.spend(cost) { redeemed = title }
+            Button("Обменять") {
+                pendingReward = reward
             }
             .font(.caption.weight(.semibold))
             .buttonStyle(.borderedProminent)
-            .tint(bonus.balance >= cost ? .sanAccent : .gray)
-            .disabled(bonus.balance < cost || redeemed == title)
+            .tint(bonus.balance >= reward.cost ? .sanAccent : .gray)
+            .disabled(bonus.balance < reward.cost)
         }
         .padding(14)
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
@@ -173,5 +203,8 @@ struct BonusHubView: View {
 }
 
 #Preview {
-    BonusHubView().environmentObject(BonusEngine()).tint(.sanAccent)
+    BonusHubView()
+        .environmentObject(BonusEngine())
+        .environmentObject(CouponStore())
+        .tint(.sanAccent)
 }
