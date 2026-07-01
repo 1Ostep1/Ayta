@@ -222,6 +222,11 @@ struct DealCard: View {
 
     private var actions: some View {
         HStack(spacing: 18) {
+            Label("до \(deal.validUntil.sanShort)", systemImage: "clock")
+                .font(.caption).foregroundStyle(.secondary)
+
+            Spacer()
+
             Button {
                 if store.isGuest { showGuestAlert = true } else { store.toggleFavorite(deal) }
             } label: {
@@ -236,11 +241,6 @@ struct DealCard: View {
                       message: Text("\(deal.title) — \(venue?.name ?? ""). Нашёл в Ayta!")) {
                 Image(systemName: "square.and.arrow.up").font(.title3).foregroundStyle(.primary)
             }
-
-            Spacer()
-
-            Label("до \(deal.validUntil.sanShort)", systemImage: "clock")
-                .font(.caption).foregroundStyle(.secondary)
         }
         .padding(.horizontal, pad)
         .padding(.vertical, 12)
@@ -464,6 +464,7 @@ struct VenueCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if isSponsored { adBanner }
             cover
             info
         }
@@ -480,18 +481,24 @@ struct VenueCard: View {
         }
     }
 
+    private var adBanner: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "megaphone.fill").font(.caption2)
+            Text("Реклама").font(.caption.weight(.heavy))
+            Spacer()
+            Text("рекомендуем заведение").font(.caption2.weight(.semibold)).opacity(0.9)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .background(LinearGradient(colors: [Color(hex: 0xFF4D29), Color(hex: 0xFFB300)],
+                                   startPoint: .leading, endPoint: .trailing))
+    }
+
     private var cover: some View {
         ZStack(alignment: .topLeading) {
             VenuePhoto(urlString: venue.imageURL, gradient: venue.gradient)
 
             HStack {
-                if isSponsored {
-                    Text("Реклама")
-                        .font(.caption2.weight(.semibold))
-                        .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(.black.opacity(0.4), in: Capsule())
-                        .foregroundStyle(.white)
-                }
                 Spacer()
                 Button {
                     if store.isGuest { showGuestAlert = true } else { store.toggleSave(venue) }
