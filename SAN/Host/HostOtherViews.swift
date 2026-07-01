@@ -264,14 +264,24 @@ struct HostPromoteCreateView: View {
 
     private var venueDeals: [HostDealDTO] { host.deals(forVenue: selectedVenue) }
 
-    private let durations = [7, 14, 30]
-    private func price(_ d: Int) -> Int { d * 150 }
+    private let durations = [7, 14, 30, 0]        // 0 = бессрочно
+    private func price(_ d: Int) -> Int { d == 0 ? 3000 : d * 150 }
+    private func durationLabel(_ d: Int) -> String {
+        d == 0 ? "Бессрочно — \(price(0)) сом" : "\(d) дней — \(price(d)) сом"
+    }
 
     var body: some View {
         Form {
             Section("Заведение") {
-                Picker("Заведение", selection: $selectedVenue) {
-                    ForEach(host.venueDTOs) { Text($0.name).tag($0.id) }
+                NavigationLink {
+                    VenueSearchPicker(venues: host.venueDTOs, selected: $selectedVenue)
+                } label: {
+                    HStack {
+                        Text("Заведение")
+                        Spacer()
+                        Text(host.venueDTO(id: selectedVenue)?.name ?? "Выбрать")
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             Section("Тип") {
@@ -282,8 +292,8 @@ struct HostPromoteCreateView: View {
             }
             if kind == .boost {
                 Section("Длительность") {
-                    Picker("Дней", selection: $duration) {
-                        ForEach(durations, id: \.self) { Text("\($0) дней — \(price($0)) сом").tag($0) }
+                    Picker("Срок", selection: $duration) {
+                        ForEach(durations, id: \.self) { Text(durationLabel($0)).tag($0) }
                     }
                 }
             } else {
@@ -326,7 +336,9 @@ struct HostPromoteCreateView: View {
     }
 
     private func launch() {
-        let end = Calendar.current.date(byAdding: .day, value: kind == .boost ? duration : 1, to: .now)!
+        // Бессрочно (duration == 0) → дата далеко в будущем.
+        let boostDays = duration == 0 ? 365 * 50 : duration
+        let end = Calendar.current.date(byAdding: .day, value: kind == .boost ? boostDays : 1, to: .now)!
         let c = AdCampaign(id: host.campaignID(), kind: kind, venueID: selectedVenue,
                            status: .active, startAt: .now, endAt: end,
                            impressions: 0, taps: 0, spend: kind == .boost ? price(duration) : 100)
@@ -344,6 +356,41 @@ struct HostPromoteCreateView: View {
                             dealID: selectedDeal.isEmpty ? nil : selectedDeal)
         }
         dismiss()
+    }
+}
+
+// MARK: - Поиск заведения (с клавиатурой)
+
+struct VenueSearchPicker: View {
+    let venues: [HostVenueDTO]
+    @Binding var selected: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+
+    private var filtered: [HostVenueDTO] {
+        query.isEmpty ? venues
+            : venues.filter { $0.name.localizedCaseInsensitiveContains(query) }
+    }
+
+    var body: some View {
+        List(filtered) { v in
+            Button {
+                selected = v.id
+                dismiss()
+            } label: {
+                HStack {
+                    Text(v.name).foregroundStyle(.primary)
+                    Spacer()
+                    if v.id == selected {
+                        Image(systemName: "checkmark").foregroundStyle(Color.sanAccent)
+                    }
+                }
+            }
+        }
+        .searchable(text: $query, prompt: "Поиск заведения")
+        .autocorrectionDisabled()
+        .navigationTitle("Заведение")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
